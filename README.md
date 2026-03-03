@@ -34,12 +34,14 @@ The retry loop is controlled by:
 | `--planner` | `-P` | No | `cli` or `cli/model`; CLIs: `claude`, `codex`, `cursor`; defaults to `--coder` |
 | `--reviewer` | `-R` | Yes | `cli` or `cli/model`; CLIs: `claude`, `codex`, `cursor`; must differ from `--coder` and `--planner` by CLI or effective model |
 | `--mode` | `-M` | No | `plan`, `plan-review`, `code`, or `code-review`; when omitted, the full workflow runs |
+| `--verbose` | | No | Flag only; when set, CLI tool output is shown with stderr merged into stdout |
 | `--branch` | `-B` | Unless `--current-branch` | Branch name to switch to or create |
 | `--current-branch` | | Unless `--branch` | Use the current git branch |
 
 The `cli/model` format passes `--model <model>` to the chosen CLI. When no model is specified the
 CLI uses its own default. For `cursor`, the built-in default is `gpt-5.3-codex-high`.
 The `--mode` flag runs only the selected stage. `plan-review` and `code-review` require that you have already run the matching `plan` or `code` stage on the same branch.
+The `--verbose` flag shows CLI tool output and merges stderr into stdout so all tool output appears on stdout.
 
 ## Requirements
 

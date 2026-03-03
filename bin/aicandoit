@@ -21,6 +21,7 @@ Options:
   -R, --reviewer <cli[/model]>   Reviewer CLI: claude, codex, or cursor; optionally append /model; must differ from --coder and --planner by CLI or effective model (required)
   -P, --planner <cli[/model]>    Planner CLI: claude, codex, or cursor; optionally append /model; defaults to --coder
   -M, --mode <stage>             Stage to run: plan, plan-review, code, or code-review; defaults to full workflow
+      --verbose                  Show CLI tool output (stderr merged to stdout)
   -B, --branch <name>            Branch to switch to or create
       --current-branch           Use the current git branch
 EOF
@@ -101,6 +102,7 @@ BRANCH=""
 USE_CURRENT_BRANCH=false
 MODE=""
 MODE_SET=false
+VERBOSE=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -116,6 +118,7 @@ while [[ $# -gt 0 ]]; do
     --mode|-M)
       [[ $# -gt 1 ]] || { echo "error: --mode requires a value" >&2; usage; }
       MODE="$2"; MODE_SET=true; shift 2 ;;
+    --verbose) VERBOSE=true; shift ;;
     --branch|-B)
       [[ $# -gt 1 ]] || { echo "error: --branch requires a value" >&2; usage; }
       BRANCH="$2"; shift 2 ;;
@@ -234,23 +237,32 @@ build_model_args "$CODER_MODEL" CODER_CLAUDE_MODEL CODER_CODEX_MODEL
 build_model_args "$PLANNER_MODEL" PLANNER_CLAUDE_MODEL PLANNER_CODEX_MODEL
 build_model_args "$REVIEWER_MODEL" REVIEWER_CLAUDE_MODEL REVIEWER_CODEX_MODEL
 
+# Run a CLI command honoring the VERBOSE flag.
+run_cli() {
+  if [[ "$VERBOSE" == true ]]; then
+    "$@" 2>&1
+  else
+    "$@" >/dev/null 2>&1
+  fi
+}
+
 # --- Coder functions ---
 
 # Run the initial plan step using the planner role.
 run_plan() {
   case "$PLANNER_CLI" in
-    claude) claude "${PLANNER_CLAUDE_MODEL[@]}" -p "/plan-it $PROMPT" >/dev/null 2>&1 ;;
-    codex)  codex $CODEX_BASE_ARGS "${PLANNER_CODEX_MODEL[@]}" exec "\$plan-it $PROMPT" >/dev/null 2>&1 ;;
-    cursor) cursor-agent "${PLANNER_CURSOR_ARGS[@]}" "/plan-it $PROMPT" >/dev/null 2>&1 ;;
+    claude) run_cli claude "${PLANNER_CLAUDE_MODEL[@]}" -p "/plan-it $PROMPT" ;;
+    codex)  run_cli codex $CODEX_BASE_ARGS "${PLANNER_CODEX_MODEL[@]}" exec "\$plan-it $PROMPT" ;;
+    cursor) run_cli cursor-agent "${PLANNER_CURSOR_ARGS[@]}" "/plan-it $PROMPT" ;;
   esac
 }
 
 # Update the plan using the planner role.
 run_plan_update() {
   case "$PLANNER_CLI" in
-    claude) claude "${PLANNER_CLAUDE_MODEL[@]}" -c -p "/plan-update" >/dev/null 2>&1 ;;
-    codex)  codex $CODEX_BASE_ARGS "${PLANNER_CODEX_MODEL[@]}" exec resume --last '$plan-update' >/dev/null 2>&1 ;;
-    cursor) cursor-agent "${PLANNER_CURSOR_ARGS[@]}" --continue '/plan-update' >/dev/null 2>&1 ;;
+    claude) run_cli claude "${PLANNER_CLAUDE_MODEL[@]}" -c -p "/plan-update" ;;
+    codex)  run_cli codex $CODEX_BASE_ARGS "${PLANNER_CODEX_MODEL[@]}" exec resume --last '$plan-update' ;;
+    cursor) run_cli cursor-agent "${PLANNER_CURSOR_ARGS[@]}" --continue '/plan-update' ;;
   esac
 }
 
@@ -258,15 +270,15 @@ run_plan_update() {
 run_code() {
   if [[ "$PLANNER_MATCHES_CODER" == true ]]; then
     case "$CODER_CLI" in
-      claude) claude "${CODER_CLAUDE_MODEL[@]}" -c -p "/code-it" >/dev/null 2>&1 ;;
-      codex)  codex $CODEX_BASE_ARGS "${CODER_CODEX_MODEL[@]}" exec resume --last '$code-it' >/dev/null 2>&1 ;;
-      cursor) cursor-agent "${CODER_CURSOR_ARGS[@]}" --continue '/code-it' >/dev/null 2>&1 ;;
+      claude) run_cli claude "${CODER_CLAUDE_MODEL[@]}" -c -p "/code-it" ;;
+      codex)  run_cli codex $CODEX_BASE_ARGS "${CODER_CODEX_MODEL[@]}" exec resume --last '$code-it' ;;
+      cursor) run_cli cursor-agent "${CODER_CURSOR_ARGS[@]}" --continue '/code-it' ;;
     esac
   else
     case "$CODER_CLI" in
-      claude) claude "${CODER_CLAUDE_MODEL[@]}" -p "/code-it" >/dev/null 2>&1 ;;
-      codex)  codex $CODEX_BASE_ARGS "${CODER_CODEX_MODEL[@]}" exec '$code-it' >/dev/null 2>&1 ;;
-      cursor) cursor-agent "${CODER_CURSOR_ARGS[@]}" '/code-it' >/dev/null 2>&1 ;;
+      claude) run_cli claude "${CODER_CLAUDE_MODEL[@]}" -p "/code-it" ;;
+      codex)  run_cli codex $CODEX_BASE_ARGS "${CODER_CODEX_MODEL[@]}" exec '$code-it' ;;
+      cursor) run_cli cursor-agent "${CODER_CURSOR_ARGS[@]}" '/code-it' ;;
     esac
   fi
 }
@@ -274,9 +286,9 @@ run_code() {
 # Run the code fix step using the coder role.
 run_code_fix() {
   case "$CODER_CLI" in
-    claude) claude "${CODER_CLAUDE_MODEL[@]}" -c -p "/code-fix" >/dev/null 2>&1 ;;
-    codex)  codex $CODEX_BASE_ARGS "${CODER_CODEX_MODEL[@]}" exec resume --last '$code-fix' >/dev/null 2>&1 ;;
-    cursor) cursor-agent "${CODER_CURSOR_ARGS[@]}" --continue '/code-fix' >/dev/null 2>&1 ;;
+    claude) run_cli claude "${CODER_CLAUDE_MODEL[@]}" -c -p "/code-fix" ;;
+    codex)  run_cli codex $CODEX_BASE_ARGS "${CODER_CODEX_MODEL[@]}" exec resume --last '$code-fix' ;;
+    cursor) run_cli cursor-agent "${CODER_CURSOR_ARGS[@]}" --continue '/code-fix' ;;
   esac
 }
 
@@ -285,36 +297,36 @@ run_code_fix() {
 # Run the initial plan review using the reviewer role.
 run_plan_review() {
   case "$REVIEWER_CLI" in
-    claude) claude "${REVIEWER_CLAUDE_MODEL[@]}" -p "/plan-review" >/dev/null 2>&1 ;;
-    codex)  codex $CODEX_BASE_ARGS "${REVIEWER_CODEX_MODEL[@]}" exec '$plan-review' >/dev/null 2>&1 ;;
-    cursor) cursor-agent "${REVIEWER_CURSOR_ARGS[@]}" '/plan-review' >/dev/null 2>&1 ;;
+    claude) run_cli claude "${REVIEWER_CLAUDE_MODEL[@]}" -p "/plan-review" ;;
+    codex)  run_cli codex $CODEX_BASE_ARGS "${REVIEWER_CODEX_MODEL[@]}" exec '$plan-review' ;;
+    cursor) run_cli cursor-agent "${REVIEWER_CURSOR_ARGS[@]}" '/plan-review' ;;
   esac
 }
 
 # Re-run plan review in the review loop using the reviewer role.
 run_plan_review_loop() {
   case "$REVIEWER_CLI" in
-    claude) claude "${REVIEWER_CLAUDE_MODEL[@]}" -c -p "/plan-review" >/dev/null 2>&1 ;;
-    codex)  codex $CODEX_BASE_ARGS "${REVIEWER_CODEX_MODEL[@]}" exec resume --last '$plan-review' >/dev/null 2>&1 ;;
-    cursor) cursor-agent "${REVIEWER_CURSOR_ARGS[@]}" --continue '/plan-review' >/dev/null 2>&1 ;;
+    claude) run_cli claude "${REVIEWER_CLAUDE_MODEL[@]}" -c -p "/plan-review" ;;
+    codex)  run_cli codex $CODEX_BASE_ARGS "${REVIEWER_CODEX_MODEL[@]}" exec resume --last '$plan-review' ;;
+    cursor) run_cli cursor-agent "${REVIEWER_CURSOR_ARGS[@]}" --continue '/plan-review' ;;
   esac
 }
 
 # Run the initial code review using the reviewer role.
 run_code_review() {
   case "$REVIEWER_CLI" in
-    claude) claude "${REVIEWER_CLAUDE_MODEL[@]}" -c -p "/code-review" >/dev/null 2>&1 ;;
-    codex)  codex $CODEX_BASE_ARGS "${REVIEWER_CODEX_MODEL[@]}" exec resume --last '$code-review' >/dev/null 2>&1 ;;
-    cursor) cursor-agent "${REVIEWER_CURSOR_ARGS[@]}" --continue '/code-review' >/dev/null 2>&1 ;;
+    claude) run_cli claude "${REVIEWER_CLAUDE_MODEL[@]}" -c -p "/code-review" ;;
+    codex)  run_cli codex $CODEX_BASE_ARGS "${REVIEWER_CODEX_MODEL[@]}" exec resume --last '$code-review' ;;
+    cursor) run_cli cursor-agent "${REVIEWER_CURSOR_ARGS[@]}" --continue '/code-review' ;;
   esac
 }
 
 # Re-run code review in the review loop using the reviewer role.
 run_code_review_loop() {
   case "$REVIEWER_CLI" in
-    claude) claude "${REVIEWER_CLAUDE_MODEL[@]}" -c -p "/code-review" >/dev/null 2>&1 ;;
-    codex)  codex $CODEX_BASE_ARGS "${REVIEWER_CODEX_MODEL[@]}" exec resume --last '$code-review' >/dev/null 2>&1 ;;
-    cursor) cursor-agent "${REVIEWER_CURSOR_ARGS[@]}" --continue '/code-review' >/dev/null 2>&1 ;;
+    claude) run_cli claude "${REVIEWER_CLAUDE_MODEL[@]}" -c -p "/code-review" ;;
+    codex)  run_cli codex $CODEX_BASE_ARGS "${REVIEWER_CODEX_MODEL[@]}" exec resume --last '$code-review' ;;
+    cursor) run_cli cursor-agent "${REVIEWER_CURSOR_ARGS[@]}" --continue '/code-review' ;;
   esac
 }
 
