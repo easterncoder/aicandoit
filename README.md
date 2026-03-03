@@ -58,8 +58,8 @@ The CLIs required depend on the values you pass to `--coder` and `--reviewer`:
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/easterncoder/claudex-coder.git
-cd claudex-coder
+git clone https://github.com/easterncoder/aicandoit.git
+cd aicandoit
 ```
 
 ### 2. Install the launcher
@@ -72,15 +72,6 @@ If you prefer to run from the repo directly:
 
 ```bash
 chmod +x bin/aicandoit
-```
-
-#### Legacy launchers
-
-The original single-CLI launchers are still available if you need them:
-
-```bash
-sudo install -m 0755 bin/claudex-coder /usr/local/bin/claudex-coder
-sudo install -m 0755 bin/claursor-coder /usr/local/bin/claursor-coder
 ```
 
 ### 3. Install the shared skills
@@ -156,20 +147,6 @@ aicandoit -C claude -R cursor -B feature/api-caching "add caching to API respons
 aicandoit --coder claude --reviewer codex --current-branch "fix the login bug"
 aicandoit --coder cursor/composer-1 --reviewer claude/claude-opus-4-6 --current-branch "add model routing"
 aicandoit --coder claude/claude-sonnet-4-6 --reviewer claude/claude-opus-4-6 --current-branch "add feature"
-```
-
-### Legacy Launchers
-
-`claudex-coder` and `claursor-coder` use positional arguments:
-
-```bash
-claudex-coder "" "add caching to API responses"
-claudex-coder feature/api-caching "add caching to API responses"
-```
-
-```bash
-claursor-coder "" "add caching to API responses"
-claursor-coder feature/api-caching "add caching to API responses"
 ```
 
 ## License
