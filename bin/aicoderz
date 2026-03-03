@@ -33,9 +33,15 @@ USE_CURRENT_BRANCH=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --coder|-C)       CODER="$2";    shift 2 ;;
-    --reviewer|-R)    REVIEWER="$2"; shift 2 ;;
-    --branch|-B)      BRANCH="$2";   shift 2 ;;
+    --coder|-C)
+      [[ $# -gt 1 ]] || { echo "error: --coder requires a value" >&2; usage; }
+      CODER="$2"; shift 2 ;;
+    --reviewer|-R)
+      [[ $# -gt 1 ]] || { echo "error: --reviewer requires a value" >&2; usage; }
+      REVIEWER="$2"; shift 2 ;;
+    --branch|-B)
+      [[ $# -gt 1 ]] || { echo "error: --branch requires a value" >&2; usage; }
+      BRANCH="$2"; shift 2 ;;
     --current-branch) USE_CURRENT_BRANCH=true; shift ;;
     --) shift; break ;;
     *) break ;;

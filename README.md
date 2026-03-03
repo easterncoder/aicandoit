@@ -84,21 +84,21 @@ sudo install -m 0755 bin/claursor-coder /usr/local/bin/claursor-coder
 
 This repository ships the workflow skills in `skills/`.
 
-Install them for Claude:
+Install them for Claude (required when `--coder claude` or `--reviewer claude`):
 
 ```bash
 mkdir -p "$HOME/.claude/skills"
 cp -R skills/. "$HOME/.claude/skills/"
 ```
 
-Install them for Codex if you use `claudex-coder`:
+If you pass `--coder codex` or `--reviewer codex`, also install for Codex:
 
 ```bash
 mkdir -p "$HOME/.codex/skills"
 cp -R skills/. "$HOME/.codex/skills/"
 ```
 
-If you use `claursor-coder`, make sure your `cursor-agent` setup exposes the same workflow commands from this repository:
+If you pass `--coder cursor` or `--reviewer cursor`, make sure your `cursor-agent` setup exposes the same workflow commands from this repository:
 
 - `/plan-it`
 - `/plan-review`
