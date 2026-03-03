@@ -13,12 +13,12 @@ AI Coderz is a unified Bash launcher that runs a plan-and-implement loop using a
 
 1. Accept `--branch <name>` or `--current-branch` plus a prompt.
 2. Switch to the named branch when it exists, create it when it does not, or use the current branch when `--current-branch` is passed.
-3. Run the coder CLI with `/plan-it`.
+3. Run the coder CLI with its workflow skill prefix: `/plan-it` for Claude and Cursor, `$plan-it` for Codex.
 4. Run the reviewer CLI on the generated plan.
-5. Loop on the coder CLI with `/plan-update` plus re-review until `.ai/branches/<branch-slug>/plan-review.md` contains `ALL GOOD`.
-6. Run the coder CLI with `/code-it`.
+5. Loop on the coder CLI with `/plan-update` or `$plan-update` plus re-review until `.ai/branches/<branch-slug>/plan-review.md` contains `ALL GOOD`.
+6. Run the coder CLI with `/code-it` or `$code-it`.
 7. Run the reviewer CLI on the implementation.
-8. Loop on the coder CLI with `/code-fix` plus re-review until `.ai/branches/<branch-slug>/code-review.md` contains `ALL GOOD`.
+8. Loop on the coder CLI with `/code-fix` or `$code-fix` plus re-review until `.ai/branches/<branch-slug>/code-review.md` contains `ALL GOOD`.
 9. Stop early if required CLIs are missing from `PATH`.
 
 The retry loop is controlled by:
@@ -97,6 +97,15 @@ If you pass `--coder codex` or `--reviewer codex`, also install for Codex:
 mkdir -p "$HOME/.codex/skills"
 cp -R skills/. "$HOME/.codex/skills/"
 ```
+
+Codex invokes these skills with a `$` prefix:
+
+- `$plan-it`
+- `$plan-review`
+- `$plan-update`
+- `$code-it`
+- `$code-review`
+- `$code-fix`
 
 If you pass `--coder cursor` or `--reviewer cursor`, make sure your `cursor-agent` setup exposes the same workflow commands from this repository:
 

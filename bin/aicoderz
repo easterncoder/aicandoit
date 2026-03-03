@@ -110,7 +110,7 @@ CURSOR_BASE_ARGS="--trust --print --model gpt-5.3-codex-high"
 run_plan() {
   case "$CODER" in
     claude) claude -p "/plan-it $PROMPT" >/dev/null 2>&1 ;;
-    codex)  codex $CODEX_BASE_ARGS exec "/plan-it $PROMPT" >/dev/null 2>&1 ;;
+    codex)  codex $CODEX_BASE_ARGS exec "\$plan-it $PROMPT" >/dev/null 2>&1 ;;
     cursor) cursor-agent $CURSOR_BASE_ARGS "/plan-it $PROMPT" >/dev/null 2>&1 ;;
   esac
 }
@@ -118,7 +118,7 @@ run_plan() {
 run_plan_update() {
   case "$CODER" in
     claude) claude -c -p "/plan-update" >/dev/null 2>&1 ;;
-    codex)  codex $CODEX_BASE_ARGS exec resume --last "/plan-update" >/dev/null 2>&1 ;;
+    codex)  codex $CODEX_BASE_ARGS exec resume --last '$plan-update' >/dev/null 2>&1 ;;
     cursor) cursor-agent $CURSOR_BASE_ARGS --continue '/plan-update' >/dev/null 2>&1 ;;
   esac
 }
@@ -126,7 +126,7 @@ run_plan_update() {
 run_code() {
   case "$CODER" in
     claude) claude -c -p "/code-it" >/dev/null 2>&1 ;;
-    codex)  codex $CODEX_BASE_ARGS exec resume --last "/code-it" >/dev/null 2>&1 ;;
+    codex)  codex $CODEX_BASE_ARGS exec resume --last '$code-it' >/dev/null 2>&1 ;;
     cursor) cursor-agent $CURSOR_BASE_ARGS --continue '/code-it' >/dev/null 2>&1 ;;
   esac
 }
@@ -134,7 +134,7 @@ run_code() {
 run_code_fix() {
   case "$CODER" in
     claude) claude -c -p "/code-fix" >/dev/null 2>&1 ;;
-    codex)  codex $CODEX_BASE_ARGS exec resume --last "/code-fix" >/dev/null 2>&1 ;;
+    codex)  codex $CODEX_BASE_ARGS exec resume --last '$code-fix' >/dev/null 2>&1 ;;
     cursor) cursor-agent $CURSOR_BASE_ARGS --continue '/code-fix' >/dev/null 2>&1 ;;
   esac
 }
