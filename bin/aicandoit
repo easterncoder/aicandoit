@@ -14,12 +14,13 @@ echo
 # Print usage and exit.
 usage() {
   cat >&2 <<EOF
-Usage: aicandoit --coder <cli[/model]> --reviewer <cli[/model]> [--planner <cli[/model]>] (--branch <name> | --current-branch) <prompt...>
+Usage: aicandoit --coder <cli[/model]> --reviewer <cli[/model]> [--planner <cli[/model]>] [--mode <stage>] (--branch <name> | --current-branch) <prompt...>
 
 Options:
   -C, --coder <cli[/model]>      Coder CLI: claude, codex, or cursor; optionally append /model (required)
   -R, --reviewer <cli[/model]>   Reviewer CLI: claude, codex, or cursor; optionally append /model; must differ from --coder and --planner by CLI or effective model (required)
   -P, --planner <cli[/model]>    Planner CLI: claude, codex, or cursor; optionally append /model; defaults to --coder
+  -M, --mode <stage>             Stage to run: plan, plan-review, code, or code-review; defaults to full workflow
   -B, --branch <name>            Branch to switch to or create
       --current-branch           Use the current git branch
 EOF
@@ -97,6 +98,8 @@ REVIEWER=""
 PLANNER=""
 BRANCH=""
 USE_CURRENT_BRANCH=false
+MODE=""
+MODE_SET=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -109,6 +112,9 @@ while [[ $# -gt 0 ]]; do
     --planner|-P)
       [[ $# -gt 1 ]] || { echo "error: --planner requires a value" >&2; usage; }
       PLANNER="$2"; shift 2 ;;
+    --mode|-M)
+      [[ $# -gt 1 ]] || { echo "error: --mode requires a value" >&2; usage; }
+      MODE="$2"; MODE_SET=true; shift 2 ;;
     --branch|-B)
       [[ $# -gt 1 ]] || { echo "error: --branch requires a value" >&2; usage; }
       BRANCH="$2"; shift 2 ;;
@@ -181,6 +187,17 @@ fi
 if [[ -z "$PROMPT" ]]; then
   echo "error: prompt is required" >&2
   usage
+fi
+if [[ "$MODE_SET" == true ]]; then
+  case "$MODE" in
+    plan|plan-review|code|code-review) ;;
+    *)
+      echo "error: --mode must be plan, plan-review, code, or code-review (got: $MODE)" >&2
+      usage
+      ;;
+  esac
+else
+  MODE="all"
 fi
 
 echo "Coder:    ${CODER_CLI}${CODER_MODEL:+ (model: $CODER_MODEL)}"
@@ -346,10 +363,63 @@ else
 fi
 
 BRANCH_PATH="${BRANCH//\//_}"
+PLAN_PATH=".ai/branches/${BRANCH_PATH}/plan.md"
 PLAN_FILE=".ai/branches/${BRANCH_PATH}/plan-review.md"
 CODE_FILE=".ai/branches/${BRANCH_PATH}/code-review.md"
 
+if [[ "$MODE" == "plan-review" ]]; then
+  if [[ ! -f "$PLAN_PATH" || ! -f "$PLAN_FILE" ]]; then
+    echo "error: --mode plan-review requires an existing plan and plan review; run --mode plan first" >&2
+    exit 1
+  fi
+fi
+if [[ "$MODE" == "code" ]]; then
+  if [[ ! -f "$PLAN_PATH" ]]; then
+    echo "error: --mode code requires an approved plan for this branch; run --mode plan first" >&2
+    exit 1
+  fi
+fi
+if [[ "$MODE" == "code-review" ]]; then
+  if [[ ! -f "$CODE_FILE" ]]; then
+    echo "error: --mode code-review requires an existing code review; run --mode code first" >&2
+    exit 1
+  fi
+fi
+
 # --- Main workflow ---
+
+case "$MODE" in
+  plan)
+    echo
+    echo "Planner is planning..."
+    run_plan
+
+    echo "Reviewer is reviewing the plan..."
+    run_plan_review
+    echo "AI Can Do It finished the workflow."
+    exit 0
+    ;;
+  plan-review)
+    review_loop "Plan" "$PLAN_FILE" run_plan_update run_plan_review_loop "Planner"
+    echo "AI Can Do It finished the workflow."
+    exit 0
+    ;;
+  code)
+    echo
+    echo "Coder is implementing..."
+    run_code
+
+    echo "Reviewer is reviewing the code..."
+    run_code_review
+    echo "AI Can Do It finished the workflow."
+    exit 0
+    ;;
+  code-review)
+    review_loop "Code" "$CODE_FILE" run_code_fix run_code_review_loop "Coder"
+    echo "AI Can Do It finished the workflow."
+    exit 0
+    ;;
+esac
 
 echo
 echo "Planner is planning..."

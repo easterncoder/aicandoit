@@ -2,7 +2,7 @@
 
 AI Can Do It is a unified Bash launcher that runs a plan-and-implement loop using any supported coder and reviewer CLI pair:
 
-- `bin/aicandoit` accepts `--coder`, `--reviewer`, and optional `--planner` flags; accepted values are `claude`, `codex`, and `cursor`, optionally with a model suffix: `cli/model`.
+- `bin/aicandoit` accepts `--coder`, `--reviewer`, optional `--planner`, and optional `--mode` flags; accepted values are `claude`, `codex`, and `cursor`, optionally with a model suffix: `cli/model`.
 
 - Author: Mike Lopez <e@mikelopez.com>
 - Copyright (C) 2026 Mike Lopez <e@mikelopez.com>
@@ -33,11 +33,13 @@ The retry loop is controlled by:
 | `--coder` | `-C` | Yes | `cli` or `cli/model`; CLIs: `claude`, `codex`, `cursor` |
 | `--planner` | `-P` | No | `cli` or `cli/model`; CLIs: `claude`, `codex`, `cursor`; defaults to `--coder` |
 | `--reviewer` | `-R` | Yes | `cli` or `cli/model`; CLIs: `claude`, `codex`, `cursor`; must differ from `--coder` and `--planner` by CLI or effective model |
+| `--mode` | `-M` | No | `plan`, `plan-review`, `code`, or `code-review`; when omitted, the full workflow runs |
 | `--branch` | `-B` | Unless `--current-branch` | Branch name to switch to or create |
 | `--current-branch` | | Unless `--branch` | Use the current git branch |
 
 The `cli/model` format passes `--model <model>` to the chosen CLI. When no model is specified the
 CLI uses its own default. For `cursor`, the built-in default is `gpt-5.3-codex-high`.
+The `--mode` flag runs only the selected stage. `plan-review` and `code-review` require that you have already run the matching `plan` or `code` stage on the same branch.
 
 ## Requirements
 
@@ -137,7 +139,7 @@ cursor-agent --version
 ## Usage
 
 ```bash
-aicandoit --coder <cli[/model]> --reviewer <cli[/model]> [--planner <cli[/model]>] (--branch <name> | --current-branch) <prompt...>
+aicandoit --coder <cli[/model]> --reviewer <cli[/model]> [--planner <cli[/model]>] [--mode <stage>] (--branch <name> | --current-branch) <prompt...>
 ```
 
 Examples:
@@ -149,6 +151,8 @@ aicandoit --coder claude --reviewer codex --current-branch "fix the login bug"
 aicandoit --planner codex --coder claude --reviewer cursor --current-branch "add model routing"
 aicandoit --coder cursor/composer-1 --reviewer claude/claude-opus-4-6 --current-branch "add model routing"
 aicandoit --coder claude/claude-sonnet-4-6 --reviewer claude/claude-opus-4-6 --current-branch "add feature"
+aicandoit --coder claude --reviewer codex --current-branch --mode plan "add staging support"
+aicandoit --coder claude --reviewer codex --current-branch --mode plan-review "add staging support"
 ```
 
 ## License
