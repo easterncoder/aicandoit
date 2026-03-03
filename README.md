@@ -31,7 +31,7 @@ The retry loop is controlled by:
 | Flag | Short | Required | Accepted values |
 |---|---|---|---|
 | `--coder` | `-C` | Yes | `cli` or `cli/model`; CLIs: `claude`, `codex`, `cursor` |
-| `--reviewer` | `-R` | Yes | `cli` or `cli/model`; CLIs: `claude`, `codex`, `cursor`; must differ from `--coder` |
+| `--reviewer` | `-R` | Yes | `cli` or `cli/model`; CLIs: `claude`, `codex`, `cursor`; must differ from `--coder` by CLI or model |
 | `--branch` | `-B` | Unless `--current-branch` | Branch name to switch to or create |
 | `--current-branch` | | Unless `--branch` | Use the current git branch |
 
@@ -155,6 +155,7 @@ aicoderz --coder claude --reviewer codex --branch feature/api-caching "add cachi
 aicoderz -C claude -R cursor -B feature/api-caching "add caching to API responses"
 aicoderz --coder claude --reviewer codex --current-branch "fix the login bug"
 aicoderz --coder cursor/composer-1 --reviewer claude/claude-opus-4-6 --current-branch "add model routing"
+aicoderz --coder claude/claude-sonnet-4-6 --reviewer claude/claude-opus-4-6 --current-branch "add feature"
 ```
 
 ### Legacy Launchers

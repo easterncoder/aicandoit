@@ -17,7 +17,7 @@ Usage: aicoderz --coder <cli[/model]> --reviewer <cli[/model]> (--branch <name> 
 
 Options:
   -C, --coder <cli[/model]>      Coder CLI: claude, codex, or cursor; optionally append /model (required)
-  -R, --reviewer <cli[/model]>   Reviewer CLI: claude, codex, or cursor; optionally append /model; must differ from --coder (required)
+  -R, --reviewer <cli[/model]>   Reviewer CLI: claude, codex, or cursor; optionally append /model; must differ from --coder by CLI or model (required)
   -B, --branch <name>            Branch to switch to or create
       --current-branch           Use the current git branch
 EOF
@@ -91,8 +91,8 @@ if ! valid_cli "$REVIEWER_CLI"; then
   echo "error: --reviewer must be claude, codex, or cursor (got: $REVIEWER_CLI)" >&2
   usage
 fi
-if [[ "$CODER_CLI" == "$REVIEWER_CLI" ]]; then
-  echo "error: coder and reviewer must be different CLIs" >&2
+if [[ "$CODER_CLI" == "$REVIEWER_CLI" && "$CODER_MODEL" == "$REVIEWER_MODEL" ]]; then
+  echo "error: coder and reviewer must differ; use different CLIs or different models" >&2
   exit 1
 fi
 if [[ -n "$BRANCH" && "$USE_CURRENT_BRANCH" == true ]]; then
