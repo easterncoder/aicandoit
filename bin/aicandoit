@@ -14,13 +14,14 @@ echo
 # Print usage and exit.
 usage() {
   cat >&2 <<EOF
-Usage: aicandoit --coder <cli[/model]> --reviewer <cli[/model]> [--planner <cli[/model]>] [--mode <stage>] (--branch <name> | --current-branch) <prompt...>
+Usage: aicandoit --coder <cli[/model]> --reviewer <cli[/model]> [--planner <cli[/model]>] [--mode <stage>] [--worktree] (--branch <name> | --current-branch) <prompt...>
 
 Options:
   -C, --coder <cli[/model]>      Coder CLI: claude, codex, or cursor; optionally append /model (required)
   -R, --reviewer <cli[/model]>   Reviewer CLI: claude, codex, or cursor; optionally append /model; must differ from --coder and --planner by CLI or effective model (required)
   -P, --planner <cli[/model]>    Planner CLI: claude, codex, or cursor; optionally append /model; defaults to --coder
   -M, --mode <stage>             Stage to run: plan, plan-review, code, or code-review; defaults to full workflow
+  -W, --worktree                 Run on a branch worktree instead of switching the source checkout
       --verbose                  Show CLI tool output (stderr merged to stdout)
   -B, --branch <name>            Branch to switch to or create
       --current-branch           Use the current git branch
@@ -103,6 +104,7 @@ USE_CURRENT_BRANCH=false
 MODE=""
 MODE_SET=false
 VERBOSE=false
+USE_WORKTREE=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -118,6 +120,7 @@ while [[ $# -gt 0 ]]; do
     --mode|-M)
       [[ $# -gt 1 ]] || { echo "error: --mode requires a value" >&2; usage; }
       MODE="$2"; MODE_SET=true; shift 2 ;;
+    --worktree|-W) USE_WORKTREE=true; shift ;;
     --verbose) VERBOSE=true; shift ;;
     --branch|-B)
       [[ $# -gt 1 ]] || { echo "error: --branch requires a value" >&2; usage; }
@@ -188,6 +191,10 @@ fi
 if [[ -z "$BRANCH" && "$USE_CURRENT_BRANCH" == false ]]; then
   echo "error: pass --branch <name> or --current-branch" >&2
   usage
+fi
+if [[ "$USE_WORKTREE" == true && "$USE_CURRENT_BRANCH" == true ]]; then
+  echo "error: --worktree does not support --current-branch; pass --branch <name> instead" >&2
+  exit 1
 fi
 if [[ -z "$PROMPT" ]]; then
   echo "error: prompt is required" >&2
@@ -358,21 +365,129 @@ review_loop() {
   echo "$label is good!"
 }
 
+# Resolve the canonical repository root from the shared git directory.
+resolve_repo_root() {
+  local common_git_dir=""
+
+  common_git_dir="$(git rev-parse --path-format=absolute --git-common-dir)"
+  (
+    cd "${common_git_dir}/.."
+    pwd -P
+  )
+}
+
+# Resolve the default branch with remote HEAD and local fallbacks.
+resolve_default_branch() {
+  local default_branch=""
+
+  default_branch="$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD | sed 's@^origin/@@')"
+  if [[ -z "$default_branch" ]]; then
+    if git show-ref --verify --quiet refs/remotes/origin/main || git show-ref --verify --quiet refs/heads/main; then
+      default_branch="main"
+    elif git show-ref --verify --quiet refs/remotes/origin/master || git show-ref --verify --quiet refs/heads/master; then
+      default_branch="master"
+    elif git show-ref --verify --quiet refs/remotes/origin/develop || git show-ref --verify --quiet refs/heads/develop; then
+      default_branch="develop"
+    else
+      default_branch="main"
+    fi
+  fi
+  printf '%s\n' "$default_branch"
+}
+
+# Build a deterministic worktree path from repo root and branch name.
+resolve_worktree_path() {
+  local repo_root="$1"
+  local branch="$2"
+  local branch_path="${branch//\//_}"
+  local repo_parent=""
+  local repo_name=""
+
+  repo_parent="$(dirname "$repo_root")"
+  repo_name="$(basename "$repo_root")"
+  printf '%s/%s-worktrees/%s\n' "$repo_parent" "$repo_name" "$branch_path"
+}
+
+# Check whether a path is a registered worktree for a branch.
+is_registered_worktree_for_branch() {
+  local worktree_path="$1"
+  local branch="$2"
+  local branch_ref="refs/heads/$branch"
+
+  git worktree list --porcelain | awk -v want_path="$worktree_path" -v want_branch="$branch_ref" '
+    BEGIN { RS=""; FS="\n"; found=0 }
+    {
+      path=""
+      branch=""
+      for (i = 1; i <= NF; i++) {
+        if ($i ~ /^worktree /) {
+          path=substr($i, 10)
+        } else if ($i ~ /^branch /) {
+          branch=substr($i, 8)
+        }
+      }
+      if (path == want_path && branch == want_branch) {
+        found=1
+      }
+    }
+    END { exit found ? 0 : 1 }
+  '
+}
+
+# Ensure the target branch worktree exists and is valid.
+ensure_worktree_for_branch() {
+  local branch="$1"
+  local worktree_path="$2"
+  local default_branch="$3"
+  local source_checkout_path="$4"
+
+  if [[ -e "$worktree_path" ]]; then
+    if is_registered_worktree_for_branch "$worktree_path" "$branch"; then
+      return 0
+    fi
+    echo "error: worktree path exists but is not a valid registered worktree for '$branch': $worktree_path" >&2
+    exit 1
+  fi
+
+  if [[ "$(git -C "$source_checkout_path" rev-parse --abbrev-ref HEAD)" == "$branch" ]]; then
+    echo "error: target branch '$branch' is checked out in the source checkout; switch source checkout first or run without --worktree" >&2
+    exit 1
+  fi
+
+  mkdir -p "$(dirname "$worktree_path")"
+  if git show-ref --verify --quiet "refs/heads/$branch"; then
+    git worktree add "$worktree_path" "$branch"
+  else
+    git worktree add -b "$branch" "$worktree_path" "origin/$default_branch"
+  fi
+}
+
 # --- Branch resolution ---
 
-if [[ "$USE_CURRENT_BRANCH" == true ]]; then
-  BRANCH="$(git rev-parse --abbrev-ref HEAD)"
-  if [[ "$BRANCH" == "HEAD" ]]; then
-    BRANCH="detached-$(git rev-parse --short HEAD)"
-  fi
-  echo "Using current branch: $BRANCH"
+if [[ "$USE_WORKTREE" == true ]]; then
+  REPO_ROOT="$(resolve_repo_root)"
+  DEFAULT_BRANCH="$(resolve_default_branch)"
+  SOURCE_CHECKOUT_PATH="$(pwd -P)"
+  WORKTREE_PATH="$(resolve_worktree_path "$REPO_ROOT" "$BRANCH")"
+  echo "Using worktree for branch: $BRANCH"
+  echo "Worktree path: $WORKTREE_PATH"
+  ensure_worktree_for_branch "$BRANCH" "$WORKTREE_PATH" "$DEFAULT_BRANCH" "$SOURCE_CHECKOUT_PATH"
+  cd "$WORKTREE_PATH"
 else
-  if git show-ref --verify --quiet "refs/heads/$BRANCH"; then
-    echo "Switching to branch: $BRANCH"
-    git checkout "$BRANCH"
+  if [[ "$USE_CURRENT_BRANCH" == true ]]; then
+    BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+    if [[ "$BRANCH" == "HEAD" ]]; then
+      BRANCH="detached-$(git rev-parse --short HEAD)"
+    fi
+    echo "Using current branch: $BRANCH"
   else
-    echo "Creating branch: $BRANCH"
-    git checkout -b "$BRANCH"
+    if git show-ref --verify --quiet "refs/heads/$BRANCH"; then
+      echo "Switching to branch: $BRANCH"
+      git checkout "$BRANCH"
+    else
+      echo "Creating branch: $BRANCH"
+      git checkout -b "$BRANCH"
+    fi
   fi
 fi
 
