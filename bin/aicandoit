@@ -406,8 +406,17 @@ resolve_default_start_ref() {
   printf '%s\n' "$start_ref"
 }
 
-# Build a deterministic worktree path from repo root and branch name.
+# Build the default deterministic worktree path from repo root and branch name.
 resolve_worktree_path() {
+  local repo_root="$1"
+  local branch="$2"
+  local branch_path="${branch//\//_}"
+
+  printf '%s/.ai/branches/%s/worktree\n' "$repo_root" "$branch_path"
+}
+
+# Build the legacy deterministic worktree path from repo root and branch name.
+resolve_legacy_worktree_path() {
   local repo_root="$1"
   local branch="$2"
   local branch_path="${branch//\//_}"
@@ -479,7 +488,23 @@ if [[ "$USE_WORKTREE" == true ]]; then
   REPO_ROOT="$(resolve_repo_root)"
   DEFAULT_START_REF="$(resolve_default_start_ref)"
   SOURCE_CHECKOUT_PATH="$(pwd -P)"
-  WORKTREE_PATH="$(resolve_worktree_path "$REPO_ROOT" "$BRANCH")"
+  NEW_WORKTREE_PATH="$(resolve_worktree_path "$REPO_ROOT" "$BRANCH")"
+  LEGACY_WORKTREE_PATH="$(resolve_legacy_worktree_path "$REPO_ROOT" "$BRANCH")"
+  WORKTREE_PATH="$NEW_WORKTREE_PATH"
+
+  if [[ ! -e "$NEW_WORKTREE_PATH" && -e "$LEGACY_WORKTREE_PATH" ]]; then
+    if is_registered_worktree_for_branch "$LEGACY_WORKTREE_PATH" "$BRANCH"; then
+      WORKTREE_PATH="$LEGACY_WORKTREE_PATH"
+      echo "Legacy worktree detected for branch: $BRANCH"
+      echo "To migrate to the new location, run:"
+      echo "git worktree move \"$LEGACY_WORKTREE_PATH\" \"$NEW_WORKTREE_PATH\""
+    else
+      echo "error: legacy worktree path exists but is not a valid registered worktree for '$BRANCH': $LEGACY_WORKTREE_PATH" >&2
+      echo "hint: remove the path or register a valid worktree for '$BRANCH'" >&2
+      exit 1
+    fi
+  fi
+
   echo "Using worktree for branch: $BRANCH"
   echo "Worktree path: $WORKTREE_PATH"
   ensure_worktree_for_branch "$BRANCH" "$WORKTREE_PATH" "$DEFAULT_START_REF" "$SOURCE_CHECKOUT_PATH"

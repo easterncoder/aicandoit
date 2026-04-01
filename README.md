@@ -13,7 +13,7 @@ AI Can Do It is a unified Bash launcher that runs a plan-and-implement loop usin
 
 1. Accept `--branch <name>` or `--current-branch` plus a prompt.
 2. Switch to the named branch when it exists, create it when it does not, or use the current branch when `--current-branch` is passed.
-3. If `--worktree` is passed with `--branch`, create or reuse a deterministic branch worktree under `<repo-parent>/<repo-name>-worktrees/<branch-slug>` and run the workflow from that worktree.
+3. If `--worktree` is passed with `--branch`, create or reuse a deterministic branch worktree under `<repo-root>/.ai/branches/<branch-slug>/worktree` and run the workflow from that worktree.
 4. Run the planner CLI with its workflow skill prefix: `/plan-it` for Claude and Cursor, `$plan-it` for Codex.
 5. Run the reviewer CLI on the generated plan.
 6. Loop on the planner CLI with `/plan-update` or `$plan-update` plus re-review until `.ai/branches/<branch-slug>/plan-review.md` contains `ALL GOOD`.
@@ -44,7 +44,7 @@ The `cli/model` format passes `--model <model>` to the chosen CLI. When no model
 CLI uses its own default. For `cursor`, the built-in default is `gpt-5.3-codex-high`.
 The `--mode` flag runs only the selected stage. `plan-review` and `code-review` require that you have already run the matching `plan` or `code` stage on the same branch.
 The `--verbose` flag shows CLI tool output and merges stderr into stdout so all tool output appears on stdout.
-With `--worktree`, the launcher uses `<repo-parent>/<repo-name>-worktrees/<branch-slug>` and runs the workflow there. `--worktree` does not support `--current-branch`.
+With `--worktree`, the launcher uses `<repo-root>/.ai/branches/<branch-slug>/worktree` and runs the workflow there. If a branch already has a registered legacy worktree from older versions, the launcher reuses that path and prints a migration hint (`git worktree move <legacy-path> <repo-root>/.ai/branches/<branch-slug>/worktree`). `--worktree` does not support `--current-branch`.
 
 ## Requirements
 
