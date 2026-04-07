@@ -14,7 +14,7 @@ echo
 # Print usage and exit.
 usage() {
   cat >&2 <<EOF
-Usage: aicandoit --coder <cli[/model]> --reviewer <cli[/model]> [--planner <cli[/model]>] [--mode <stage>] [--worktree] (--branch <name> | --current-branch) <prompt...>
+Usage: aicandoit --coder <cli[/model]> --reviewer <cli[/model]> [--planner <cli[/model]>] [--mode <stage>] [--worktree] [--branch <name> | --current-branch] <prompt...>
 
 Options:
   -C, --coder <cli[/model]>      Coder CLI: claude, codex, or cursor; optionally append /model (required)
@@ -23,8 +23,8 @@ Options:
   -M, --mode <stage>             Stage to run: plan, plan-review, code, or code-review; defaults to full workflow
   -W, --worktree                 Run on a branch worktree instead of switching the source checkout
       --verbose                  Show CLI tool output (stderr merged to stdout)
-  -B, --branch <name>            Branch to switch to or create
-      --current-branch           Use the current git branch
+  -B, --branch <name>            Branch to switch to or create; optional when current-branch inference succeeds
+      --current-branch           Use the current git branch; optional when current-branch inference succeeds
 EOF
   exit 1
 }
@@ -92,6 +92,13 @@ build_cursor_args() {
   local -n cursor_args="$2"
 
   cursor_args=(--trust --print --model "${model:-$_CURSOR_DEFAULT}")
+}
+
+# Resolve the branch slug used by branch-scoped artifact paths.
+branch_to_slug() {
+  local branch="$1"
+
+  printf '%s\n' "${branch//\//_}"
 }
 
 # --- Argument parsing ---
@@ -189,8 +196,17 @@ if [[ -n "$BRANCH" && "$USE_CURRENT_BRANCH" == true ]]; then
   exit 1
 fi
 if [[ -z "$BRANCH" && "$USE_CURRENT_BRANCH" == false ]]; then
-  echo "error: pass --branch <name> or --current-branch" >&2
-  usage
+  CURRENT_BRANCH_CANDIDATE="$(git rev-parse --abbrev-ref HEAD)"
+  if [[ "$CURRENT_BRANCH_CANDIDATE" != "HEAD" ]]; then
+    CURRENT_BRANCH_PATH="$(branch_to_slug "$CURRENT_BRANCH_CANDIDATE")"
+    if [[ -d ".ai/branches/${CURRENT_BRANCH_PATH}" ]]; then
+      USE_CURRENT_BRANCH=true
+    fi
+  fi
+  if [[ "$USE_CURRENT_BRANCH" == false ]]; then
+    echo "error: pass --branch <name> or --current-branch" >&2
+    usage
+  fi
 fi
 if [[ "$USE_WORKTREE" == true && "$USE_CURRENT_BRANCH" == true ]]; then
   echo "error: --worktree does not support --current-branch; pass --branch <name> instead" >&2
@@ -410,7 +426,9 @@ resolve_default_start_ref() {
 resolve_worktree_path() {
   local repo_root="$1"
   local branch="$2"
-  local branch_path="${branch//\//_}"
+  local branch_path=""
+
+  branch_path="$(branch_to_slug "$branch")"
 
   printf '%s/.ai/branches/%s/worktree\n' "$repo_root" "$branch_path"
 }
@@ -419,10 +437,11 @@ resolve_worktree_path() {
 resolve_legacy_worktree_path() {
   local repo_root="$1"
   local branch="$2"
-  local branch_path="${branch//\//_}"
+  local branch_path=""
   local repo_parent=""
   local repo_name=""
 
+  branch_path="$(branch_to_slug "$branch")"
   repo_parent="$(dirname "$repo_root")"
   repo_name="$(basename "$repo_root")"
   printf '%s/%s-worktrees/%s\n' "$repo_parent" "$repo_name" "$branch_path"
@@ -527,7 +546,7 @@ else
   fi
 fi
 
-BRANCH_PATH="${BRANCH//\//_}"
+BRANCH_PATH="$(branch_to_slug "$BRANCH")"
 PLAN_PATH=".ai/branches/${BRANCH_PATH}/plan.md"
 PLAN_FILE=".ai/branches/${BRANCH_PATH}/plan-review.md"
 CODE_FILE=".ai/branches/${BRANCH_PATH}/code-review.md"

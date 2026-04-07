@@ -11,8 +11,8 @@ AI Can Do It is a unified Bash launcher that runs a plan-and-implement loop usin
 
 `aicandoit` follows this control flow:
 
-1. Accept `--branch <name>` or `--current-branch` plus a prompt.
-2. Switch to the named branch when it exists, create it when it does not, or use the current branch when `--current-branch` is passed.
+1. Accept `--branch <name>` or `--current-branch` plus a prompt; when both are omitted, infer current-branch mode only if `.ai/branches/<current-branch-slug>` already exists.
+2. Switch to the named branch when it exists, create it when it does not, or use the current branch when `--current-branch` is passed or inferred.
 3. If `--worktree` is passed with `--branch`, create or reuse a deterministic branch worktree under `<repo-root>/.ai/branches/<branch-slug>/worktree` and run the workflow from that worktree.
 4. Run the planner CLI with its workflow skill prefix: `/plan-it` for Claude and Cursor, `$plan-it` for Codex.
 5. Run the reviewer CLI on the generated plan.
@@ -37,13 +37,14 @@ The retry loop is controlled by:
 | `--mode` | `-M` | No | `plan`, `plan-review`, `code`, or `code-review`; when omitted, the full workflow runs |
 | `--worktree` | `-W` | No | Use a branch worktree instead of switching the source checkout; requires `--branch` |
 | `--verbose` | | No | Flag only; when set, CLI tool output is shown with stderr merged into stdout |
-| `--branch` | `-B` | Unless `--current-branch` | Branch name to switch to or create |
-| `--current-branch` | | Unless `--branch` | Use the current git branch |
+| `--branch` | `-B` | Unless `--current-branch` or branch inference succeeds | Branch name to switch to or create |
+| `--current-branch` | | Unless `--branch` or branch inference succeeds | Use the current git branch |
 
 The `cli/model` format passes `--model <model>` to the chosen CLI. When no model is specified the
 CLI uses its own default. For `cursor`, the built-in default is `gpt-5.3-codex-high`.
 The `--mode` flag runs only the selected stage. `plan-review` and `code-review` require that you have already run the matching `plan` or `code` stage on the same branch.
 The `--verbose` flag shows CLI tool output and merges stderr into stdout so all tool output appears on stdout.
+If both `--branch` and `--current-branch` are omitted, the launcher only infers current-branch mode when `.ai/branches/<current-branch-slug>` already exists; otherwise it fails with `error: pass --branch <name> or --current-branch`.
 With `--worktree`, the launcher uses `<repo-root>/.ai/branches/<branch-slug>/worktree` and runs the workflow there. If a branch already has a registered legacy worktree from older versions, the launcher reuses that path and prints a migration hint (`git worktree move <legacy-path> <repo-root>/.ai/branches/<branch-slug>/worktree`). `--worktree` does not support `--current-branch`.
 
 ## Requirements
@@ -144,7 +145,7 @@ cursor-agent --version
 ## Usage
 
 ```bash
-aicandoit --coder <cli[/model]> --reviewer <cli[/model]> [--planner <cli[/model]>] [--mode <stage>] [--worktree] (--branch <name> | --current-branch) <prompt...>
+aicandoit --coder <cli[/model]> --reviewer <cli[/model]> [--planner <cli[/model]>] [--mode <stage>] [--worktree] [--branch <name> | --current-branch] <prompt...>
 ```
 
 Examples:
