@@ -160,6 +160,13 @@ validate_cli_model --reviewer "$REVIEWER" "$REVIEWER_CLI" "$REVIEWER_MODEL"
 # Check that a CLI name is supported.
 valid_cli() { [[ "$1" == "claude" || "$1" == "codex" || "$1" == "cursor" ]]; }
 
+# Determine whether the selected mode requires a non-empty prompt.
+prompt_required_for_mode() {
+  local mode="$1"
+
+  [[ "$mode" == "all" || "$mode" == "plan" ]]
+}
+
 if ! valid_cli "$CODER_CLI"; then
   echo "error: --coder must be claude, codex, or cursor (got: $CODER_CLI)" >&2
   usage
@@ -212,10 +219,6 @@ if [[ "$USE_WORKTREE" == true && "$USE_CURRENT_BRANCH" == true ]]; then
   echo "error: --worktree does not support --current-branch; pass --branch <name> instead" >&2
   exit 1
 fi
-if [[ -z "$PROMPT" ]]; then
-  echo "error: prompt is required" >&2
-  usage
-fi
 if [[ "$MODE_SET" == true ]]; then
   case "$MODE" in
     plan|plan-review|code|code-review) ;;
@@ -226,6 +229,10 @@ if [[ "$MODE_SET" == true ]]; then
   esac
 else
   MODE="all"
+fi
+if [[ -z "$PROMPT" ]] && prompt_required_for_mode "$MODE"; then
+  echo "error: prompt is required" >&2
+  usage
 fi
 
 echo "Coder:    ${CODER_CLI}${CODER_MODEL:+ (model: $CODER_MODEL)}"
