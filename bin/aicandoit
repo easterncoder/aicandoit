@@ -552,8 +552,8 @@ PLAN_FILE=".ai/branches/${BRANCH_PATH}/plan-review.md"
 CODE_FILE=".ai/branches/${BRANCH_PATH}/code-review.md"
 
 if [[ "$MODE" == "plan-review" ]]; then
-  if [[ ! -f "$PLAN_PATH" || ! -f "$PLAN_FILE" ]]; then
-    echo "error: --mode plan-review requires an existing plan and plan review; run --mode plan first" >&2
+  if [[ ! -f "$PLAN_PATH" ]]; then
+    echo "error: --mode plan-review requires an existing plan for this branch; run --mode plan first" >&2
     exit 1
   fi
 fi
@@ -584,6 +584,11 @@ case "$MODE" in
     exit 0
     ;;
   plan-review)
+    if [[ ! -f "$PLAN_FILE" ]]; then
+      echo
+      echo "Reviewer is reviewing the plan..."
+      run_plan_review
+    fi
     review_loop "Plan" "$PLAN_FILE" run_plan_update run_plan_review_loop "Planner"
     echo "AI Can Do It finished the workflow."
     exit 0

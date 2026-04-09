@@ -42,7 +42,7 @@ The retry loop is controlled by:
 
 The `cli/model` format passes `--model <model>` to the chosen CLI. When no model is specified the
 CLI uses its own default. For `cursor`, the built-in default is `gpt-5.3-codex-high`.
-The `--mode` flag runs only the selected stage. `plan-review` and `code-review` require that you have already run the matching `plan` or `code` stage on the same branch.
+The `--mode` flag runs only the selected stage. `plan-review` requires an existing branch plan and creates `plan-review.md` on its first review pass when needed. `code-review` requires that you have already run the matching `code` stage on the same branch.
 The `--verbose` flag shows CLI tool output and merges stderr into stdout so all tool output appears on stdout.
 If both `--branch` and `--current-branch` are omitted, the launcher only infers current-branch mode when `.ai/branches/<current-branch-slug>` already exists; otherwise it fails with `error: pass --branch <name> or --current-branch`.
 With `--worktree`, the launcher uses `<repo-root>/.ai/branches/<branch-slug>/worktree` and runs the workflow there. If a branch already has a registered legacy worktree from older versions, the launcher reuses that path and prints a migration hint (`git worktree move <legacy-path> <repo-root>/.ai/branches/<branch-slug>/worktree`). `--worktree` does not support `--current-branch`.
