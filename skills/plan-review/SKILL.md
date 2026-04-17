@@ -1,13 +1,13 @@
 ---
 name: plan-review
-description: Review `.ai/branches/{branch-slug}/plan.md` for the `plan-review` command. Use when the user asks to run `plan-review`, then write review results to `.ai/branches/{branch-slug}/plan-review.md`, honoring `CLARIFICATIONS`, and write `ALL GOOD` when no issues remain.
+description: Review `.aicandoit/branches/{branch-slug}/plan.md` for the `plan-review` command. Use when the user asks to run `plan-review`, then write review results to `.aicandoit/branches/{branch-slug}/plan-review.md`, honoring `CLARIFICATIONS`, and write `ALL GOOD` when no issues remain.
 ---
 
 # Plan Review
 
 ## Goal
 
-Review `.ai/branches/{branch-slug}/plan.md` for correctness, completeness, and execution clarity for a junior developer.
+Review `.aicandoit/branches/{branch-slug}/plan.md` for correctness, completeness, and execution clarity for a junior developer.
 
 ## Branch Scope
 
@@ -15,24 +15,24 @@ Review `.ai/branches/{branch-slug}/plan.md` for correctness, completeness, and e
    - Run `git rev-parse --abbrev-ref HEAD`.
    - If the result is `HEAD`, use `detached-$(git rev-parse --short HEAD)`.
    - Replace `/` with `_` in the final value.
-2. Use `.ai/branches/{branch-slug}` as the artifact root for this skill.
-3. Do not write review output to top-level `.ai/plan-review.md`.
-4. Apply the shared guard in `.ai/references/default-branch-guard.md` before proceeding.
+2. Use `.aicandoit/branches/{branch-slug}` as the artifact root for this skill.
+3. Do not write review output to top-level `.aicandoit/plan-review.md`.
+4. Apply the shared guard in `.aicandoit/references/default-branch-guard.md` before proceeding.
 
 ## Workflow
 
-1. Ensure .ai/ and .ai/references/ exist in this order before any .ai/ file lookup.
-2. If .ai/references/default-branch-guard.md does not exist, create it using the exact guard content in Failure Handling.
-3. Run .ai/references/default-branch-guard.md and stop immediately if it blocks execution.
-4. Ensure .ai/branches/{branch-slug} exists before reading or writing branch artifacts.
-5. Ensure .ai/ and .ai/templates/ exist in this order before any .ai/ template lookup.
+1. Ensure .aicandoit/ and .aicandoit/references/ exist in this order before any .aicandoit/ file lookup.
+2. If .aicandoit/references/default-branch-guard.md does not exist, create it using the exact guard content in Failure Handling.
+3. Run .aicandoit/references/default-branch-guard.md and stop immediately if it blocks execution.
+4. Ensure .aicandoit/branches/{branch-slug} exists before reading or writing branch artifacts.
+5. Ensure .aicandoit/ and .aicandoit/templates/ exist in this order before any .aicandoit/ template lookup.
 6. If the required template file does not exist, create it using the exact template content in Failure Handling.
-7. Read `.ai/branches/{branch-slug}/plan.md`.
+7. Read `.aicandoit/branches/{branch-slug}/plan.md`.
 8. Check for a `CLARIFICATIONS` section and treat listed questions as open items.
 9. Evaluate ambiguity, missing dependencies, ordering problems, and unverifiable steps.
-10. Use `.ai/templates/plan-review.md` as the structural baseline for `.ai/branches/{branch-slug}/plan-review.md` when findings exist.
-11. Write results to `.ai/branches/{branch-slug}/plan-review.md` using the output format below.
-12. If the plan is fully acceptable, write exactly `ALL GOOD` to `.ai/branches/{branch-slug}/plan-review.md`.
+10. Use `.aicandoit/templates/plan-review.md` as the structural baseline for `.aicandoit/branches/{branch-slug}/plan-review.md` when findings exist.
+11. Write results to `.aicandoit/branches/{branch-slug}/plan-review.md` using the output format below.
+12. If the plan is fully acceptable, write exactly `ALL GOOD` to `.aicandoit/branches/{branch-slug}/plan-review.md`.
 13. If output is `ALL GOOD`, also state that all is good in the user-facing response.
 
 ## Output Format
@@ -43,9 +43,9 @@ Review `.ai/branches/{branch-slug}/plan.md` for correctness, completeness, and e
 
 ## Failure Handling
 
-- If `.ai/` does not exist, create it.
-- If `.ai/references/` does not exist, create it.
-- If `.ai/references/default-branch-guard.md` does not exist, create it with exactly this content:
+- If `.aicandoit/` does not exist, create it.
+- If `.aicandoit/references/` does not exist, create it.
+- If `.aicandoit/references/default-branch-guard.md` does not exist, create it with exactly this content:
 
 ```md
 # Default Branch Guard
@@ -75,8 +75,8 @@ Use this shared guard in all planning workflows before reading or writing branch
 - If this guard blocks execution, do not write or update planning artifacts.
 ```
 
-- If `.ai/templates/` does not exist, create it.
-- If .ai/templates/plan-review.md does not exist, create it with exactly this content:
+- If `.aicandoit/templates/` does not exist, create it.
+- If .aicandoit/templates/plan-review.md does not exist, create it with exactly this content:
 
 ```md
 # Plan Review
@@ -89,9 +89,9 @@ Format per finding:
 ---
 ```
 
-- If .ai/branches/{branch-slug} does not exist, create it.
-- If `.ai/branches/{branch-slug}/plan.md` is missing but legacy `.ai/plan.md` exists, copy legacy content once before review.
-- If `.ai/references/default-branch-guard.md` blocks execution, do not write or update any review files.
+- If .aicandoit/branches/{branch-slug} does not exist, create it.
+- If `.aicandoit/branches/{branch-slug}/plan.md` is missing, ask the user to run `plan-it` first.
+- If `.aicandoit/references/default-branch-guard.md` blocks execution, do not write or update any review files.
 
 ## Review Focus
 

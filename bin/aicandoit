@@ -86,7 +86,7 @@ build_model_args() {
   fi
 }
 
-# Build cursor args with the default model fallback.
+# Build cursor args with the default model.
 build_cursor_args() {
   local model="$1"
   local -n cursor_args="$2"
@@ -99,6 +99,47 @@ branch_to_slug() {
   local branch="$1"
 
   printf '%s\n' "${branch//\//_}"
+}
+
+# Resolve the current branch name without requiring an existing commit.
+resolve_current_branch_name() {
+  local branch=""
+  local git_dir_args=()
+
+  if [[ $# -gt 0 && -n "$1" ]]; then
+    git_dir_args=(-C "$1")
+  fi
+
+  branch="$(git "${git_dir_args[@]}" branch --show-current 2>/dev/null || true)"
+  if [[ -n "$branch" ]]; then
+    printf '%s\n' "$branch"
+    return 0
+  fi
+
+  branch="$(git "${git_dir_args[@]}" symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
+  if [[ -n "$branch" ]]; then
+    printf '%s\n' "$branch"
+    return 0
+  fi
+
+  git "${git_dir_args[@]}" rev-parse --abbrev-ref HEAD
+}
+
+# Check whether a branch artifact directory exists under the given root.
+branch_artifact_dir_exists() {
+  local artifact_root="$1"
+  local branch_path="$2"
+
+  [[ -d "${artifact_root}/branches/${branch_path}" ]]
+}
+
+# Resolve the artifact root for a branch.
+resolve_branch_artifact_root() {
+  local branch="$1"
+  local branch_path=""
+
+  branch_path="$(branch_to_slug "$branch")"
+  printf '.aicandoit\n'
 }
 
 # --- Argument parsing ---
@@ -203,10 +244,10 @@ if [[ -n "$BRANCH" && "$USE_CURRENT_BRANCH" == true ]]; then
   exit 1
 fi
 if [[ -z "$BRANCH" && "$USE_CURRENT_BRANCH" == false ]]; then
-  CURRENT_BRANCH_CANDIDATE="$(git rev-parse --abbrev-ref HEAD)"
+  CURRENT_BRANCH_CANDIDATE="$(resolve_current_branch_name)"
   if [[ "$CURRENT_BRANCH_CANDIDATE" != "HEAD" ]]; then
     CURRENT_BRANCH_PATH="$(branch_to_slug "$CURRENT_BRANCH_CANDIDATE")"
-    if [[ -d ".ai/branches/${CURRENT_BRANCH_PATH}" ]]; then
+    if branch_artifact_dir_exists ".aicandoit" "$CURRENT_BRANCH_PATH"; then
       USE_CURRENT_BRANCH=true
     fi
   fi
@@ -399,7 +440,7 @@ resolve_repo_root() {
   )
 }
 
-# Resolve the default branch start ref with remote HEAD and local fallbacks.
+# Resolve the default branch start ref with remote HEAD and local defaults.
 resolve_default_start_ref() {
   local default_branch=""
   local start_ref=""
@@ -437,21 +478,7 @@ resolve_worktree_path() {
 
   branch_path="$(branch_to_slug "$branch")"
 
-  printf '%s/.ai/branches/%s/worktree\n' "$repo_root" "$branch_path"
-}
-
-# Build the legacy deterministic worktree path from repo root and branch name.
-resolve_legacy_worktree_path() {
-  local repo_root="$1"
-  local branch="$2"
-  local branch_path=""
-  local repo_parent=""
-  local repo_name=""
-
-  branch_path="$(branch_to_slug "$branch")"
-  repo_parent="$(dirname "$repo_root")"
-  repo_name="$(basename "$repo_root")"
-  printf '%s/%s-worktrees/%s\n' "$repo_parent" "$repo_name" "$branch_path"
+  printf '%s/.aicandoit/branches/%s/worktree\n' "$repo_root" "$branch_path"
 }
 
 # Check whether a path is a registered worktree for a branch.
@@ -495,7 +522,7 @@ ensure_worktree_for_branch() {
     exit 1
   fi
 
-  if [[ "$(git -C "$source_checkout_path" rev-parse --abbrev-ref HEAD)" == "$branch" ]]; then
+  if [[ "$(resolve_current_branch_name "$source_checkout_path")" == "$branch" ]]; then
     echo "error: target branch '$branch' is checked out in the source checkout; switch source checkout first or run without --worktree" >&2
     exit 1
   fi
@@ -514,22 +541,7 @@ if [[ "$USE_WORKTREE" == true ]]; then
   REPO_ROOT="$(resolve_repo_root)"
   DEFAULT_START_REF="$(resolve_default_start_ref)"
   SOURCE_CHECKOUT_PATH="$(pwd -P)"
-  NEW_WORKTREE_PATH="$(resolve_worktree_path "$REPO_ROOT" "$BRANCH")"
-  LEGACY_WORKTREE_PATH="$(resolve_legacy_worktree_path "$REPO_ROOT" "$BRANCH")"
-  WORKTREE_PATH="$NEW_WORKTREE_PATH"
-
-  if [[ ! -e "$NEW_WORKTREE_PATH" && -e "$LEGACY_WORKTREE_PATH" ]]; then
-    if is_registered_worktree_for_branch "$LEGACY_WORKTREE_PATH" "$BRANCH"; then
-      WORKTREE_PATH="$LEGACY_WORKTREE_PATH"
-      echo "Legacy worktree detected for branch: $BRANCH"
-      echo "To migrate to the new location, run:"
-      echo "git worktree move \"$LEGACY_WORKTREE_PATH\" \"$NEW_WORKTREE_PATH\""
-    else
-      echo "error: legacy worktree path exists but is not a valid registered worktree for '$BRANCH': $LEGACY_WORKTREE_PATH" >&2
-      echo "hint: remove the path or register a valid worktree for '$BRANCH'" >&2
-      exit 1
-    fi
-  fi
+  WORKTREE_PATH="$(resolve_worktree_path "$REPO_ROOT" "$BRANCH")"
 
   echo "Using worktree for branch: $BRANCH"
   echo "Worktree path: $WORKTREE_PATH"
@@ -537,7 +549,7 @@ if [[ "$USE_WORKTREE" == true ]]; then
   cd "$WORKTREE_PATH"
 else
   if [[ "$USE_CURRENT_BRANCH" == true ]]; then
-    BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+    BRANCH="$(resolve_current_branch_name)"
     if [[ "$BRANCH" == "HEAD" ]]; then
       BRANCH="detached-$(git rev-parse --short HEAD)"
     fi
@@ -554,9 +566,10 @@ else
 fi
 
 BRANCH_PATH="$(branch_to_slug "$BRANCH")"
-PLAN_PATH=".ai/branches/${BRANCH_PATH}/plan.md"
-PLAN_FILE=".ai/branches/${BRANCH_PATH}/plan-review.md"
-CODE_FILE=".ai/branches/${BRANCH_PATH}/code-review.md"
+ARTIFACT_ROOT="$(resolve_branch_artifact_root "$BRANCH")"
+PLAN_PATH="${ARTIFACT_ROOT}/branches/${BRANCH_PATH}/plan.md"
+PLAN_FILE="${ARTIFACT_ROOT}/branches/${BRANCH_PATH}/plan-review.md"
+CODE_FILE="${ARTIFACT_ROOT}/branches/${BRANCH_PATH}/code-review.md"
 
 if [[ "$MODE" == "plan-review" ]]; then
   if [[ ! -f "$PLAN_PATH" ]]; then

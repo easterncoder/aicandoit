@@ -1,6 +1,6 @@
 ---
 name: plan-done
-description: Delete the current branch artifact folder for the `plan-done` command. Use when the user wants to reset branch planning artifacts under `.ai/branches/{branch-slug}`.
+description: Delete the current branch artifact folder for the `plan-done` command. Use when the user wants to reset branch planning artifacts under `.aicandoit/branches/{branch-slug}`.
 ---
 
 # Plan Done
@@ -15,25 +15,25 @@ Reset planning workflow artifacts so work can restart from a clean state.
    - Run `git rev-parse --abbrev-ref HEAD`.
    - If the result is `HEAD`, use `detached-$(git rev-parse --short HEAD)`.
    - Replace `/` with `_` in the final value.
-2. Use `.ai/branches/{branch-slug}` as the only cleanup target.
+2. Use `.aicandoit/branches/{branch-slug}` as the only cleanup target.
 
 ## Targets To Clear
 
-- `.ai/branches/{branch-slug}`
+- `.aicandoit/branches/{branch-slug}`
 
 ## Workflow
 
-1. Resolve the target folder `.ai/branches/{branch-slug}`.
+1. Resolve the target folder `.aicandoit/branches/{branch-slug}`.
 2. If the folder exists, delete the entire folder recursively.
 3. Report that the folder was removed.
 4. If the folder does not exist, respond with `Nothing to clear`.
 
 ## Safety Rules
 
-- Only remove `.ai/branches/{branch-slug}`.
-- Never remove `.ai/templates/*`.
-- Never remove `.ai/references/*`.
-- Never remove files outside `.ai/`.
+- Only remove `.aicandoit/branches/{branch-slug}`.
+- Never remove `.aicandoit/templates/*`.
+- Never remove `.aicandoit/references/*`.
+- Never remove files outside `.aicandoit/`.
 - Do not create a commit in this workflow.
 
 ## Failure Handling

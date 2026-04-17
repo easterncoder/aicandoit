@@ -1,6 +1,6 @@
 ---
 name: code-review
-description: Perform branch review for the `code-review` command. Use when the user asks to run `code-review`, evaluate changes against `.ai/branches/{branch-slug}/plan.md`, use `.ai/branches/{branch-slug}/code-fix.md` when present, and write results to `.ai/branches/{branch-slug}/code-review.md` with `ALL GOOD` when no findings exist.
+description: Perform branch review for the `code-review` command. Use when the user asks to run `code-review`, evaluate changes against `.aicandoit/branches/{branch-slug}/plan.md`, use `.aicandoit/branches/{branch-slug}/code-fix.md` when present, and write results to `.aicandoit/branches/{branch-slug}/code-review.md` with `ALL GOOD` when no findings exist.
 allowed-tools:
   - exec_command
   - apply_patch
@@ -10,7 +10,7 @@ allowed-tools:
 
 ## Goal
 
-Review branch changes against plan intent and code quality expectations, then save the review to `.ai/branches/{branch-slug}/code-review.md`.
+Review branch changes against plan intent and code quality expectations, then save the review to `.aicandoit/branches/{branch-slug}/code-review.md`.
 
 ## Branch Scope
 
@@ -18,20 +18,20 @@ Review branch changes against plan intent and code quality expectations, then sa
    - Run `git rev-parse --abbrev-ref HEAD`.
    - If the result is `HEAD`, use `detached-$(git rev-parse --short HEAD)`.
    - Replace `/` with `_` in the final value.
-2. Use `.ai/branches/{branch-slug}` as the artifact root for this skill.
-3. Do not write review output to top-level `.ai/code-review.md`.
+2. Use `.aicandoit/branches/{branch-slug}` as the artifact root for this skill.
+3. Do not write review output to top-level `.aicandoit/code-review.md`.
 
 ## Workflow
 
-1. Ensure .ai/ and .ai/templates/ exist in this order before any .ai/ template lookup.
+1. Ensure .aicandoit/ and .aicandoit/templates/ exist in this order before any .aicandoit/ template lookup.
 2. If the required template file does not exist, create it using the exact template content in Failure Handling.
-3. Ensure .ai/branches/{branch-slug} exists before reading or writing branch artifacts.
-4. Read `.ai/branches/{branch-slug}/plan.md`.
-5. If present, read existing `.ai/branches/{branch-slug}/code-review.md` for prior context.
-6. If present, read `.ai/branches/{branch-slug}/code-fix.md` for implemented fixes.
+3. Ensure .aicandoit/branches/{branch-slug} exists before reading or writing branch artifacts.
+4. Read `.aicandoit/branches/{branch-slug}/plan.md`.
+5. If present, read existing `.aicandoit/branches/{branch-slug}/code-review.md` for prior context.
+6. If present, read `.aicandoit/branches/{branch-slug}/code-fix.md` for implemented fixes.
 7. Review current branch changes for regressions, risks, and missing coverage.
-8. Use `.ai/templates/code-review.md` as the structural baseline for `.ai/branches/{branch-slug}/code-review.md` when findings exist.
-9. Save review results to `.ai/branches/{branch-slug}/code-review.md` using the output format below.
+8. Use `.aicandoit/templates/code-review.md` as the structural baseline for `.aicandoit/branches/{branch-slug}/code-review.md` when findings exist.
+9. Save review results to `.aicandoit/branches/{branch-slug}/code-review.md` using the output format below.
 10. If there are no findings, write exactly `ALL GOOD`.
 11. If output is `ALL GOOD`, also say all is good in the user-facing response.
 
@@ -64,15 +64,15 @@ Review branch changes against plan intent and code quality expectations, then sa
 
 ## Trigger Examples
 
-- `code-review this branch against .ai/branches/{branch-slug}/plan.md`
-- `run code-review and update .ai/branches/{branch-slug}/code-review.md`
+- `code-review this branch against .aicandoit/branches/{branch-slug}/plan.md`
+- `run code-review and update .aicandoit/branches/{branch-slug}/code-review.md`
 - `review current changes and mark ALL GOOD if clean`
 
 ## Failure Handling
 
-- If `.ai/` does not exist, create it.
-- If `.ai/templates/` does not exist, create it.
-- If .ai/templates/code-review.md does not exist, create it with exactly this content:
+- If `.aicandoit/` does not exist, create it.
+- If `.aicandoit/templates/` does not exist, create it.
+- If .aicandoit/templates/code-review.md does not exist, create it with exactly this content:
 
 ```md
 # Code Review
@@ -85,7 +85,6 @@ Format per finding:
 ---
 ```
 
-- If .ai/branches/{branch-slug} does not exist, create it.
-- If `.ai/branches/{branch-slug}/plan.md` is missing but legacy `.ai/plan.md` exists, copy legacy content once before review.
-- If `.ai/branches/{branch-slug}/code-review.md` is missing but legacy `.ai/code-review.md` exists, copy legacy content once before writing.
+- If .aicandoit/branches/{branch-slug} does not exist, create it.
+- If `.aicandoit/branches/{branch-slug}/plan.md` is missing, ask the user to run `plan-it` first.
 - If findings exist but IDs cannot be assigned cleanly, stop and fix the output format before saving.

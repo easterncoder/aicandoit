@@ -11,15 +11,15 @@ AI Can Do It is a unified Bash launcher that runs a plan-and-implement loop usin
 
 `aicandoit` follows this control flow:
 
-1. Accept `--branch <name>` or `--current-branch` plus a prompt; when both are omitted, infer current-branch mode only if `.ai/branches/<current-branch-slug>` already exists.
+1. Accept `--branch <name>` or `--current-branch` plus a prompt; when both are omitted, infer current-branch mode when `.aicandoit/branches/<current-branch-slug>` already exists.
 2. Switch to the named branch when it exists, create it when it does not, or use the current branch when `--current-branch` is passed or inferred.
-3. If `--worktree` is passed with `--branch`, create or reuse a deterministic branch worktree under `<repo-root>/.ai/branches/<branch-slug>/worktree` and run the workflow from that worktree.
+3. If `--worktree` is passed with `--branch`, create or reuse a deterministic branch worktree under `<repo-root>/.aicandoit/branches/<branch-slug>/worktree` and run the workflow from that worktree.
 4. Run the planner CLI with its workflow skill prefix: `/plan-it` for Claude and Cursor, `$plan-it` for Codex.
 5. Run the reviewer CLI on the generated plan.
-6. Loop on the planner CLI with `/plan-update` or `$plan-update` plus re-review until `.ai/branches/<branch-slug>/plan-review.md` contains `ALL GOOD`.
+6. Loop on the planner CLI with `/plan-update` or `$plan-update` plus re-review until `.aicandoit/branches/<branch-slug>/plan-review.md` contains `ALL GOOD`.
 7. Run the coder CLI with `/code-it` or `$code-it`.
 8. Run the reviewer CLI on the implementation.
-9. Loop on the coder CLI with `/code-fix` or `$code-fix` plus re-review until `.ai/branches/<branch-slug>/code-review.md` contains `ALL GOOD`.
+9. Loop on the coder CLI with `/code-fix` or `$code-fix` plus re-review until `.aicandoit/branches/<branch-slug>/code-review.md` contains `ALL GOOD`.
 10. Stop early if required CLIs are missing from `PATH`.
 
 The retry loop is controlled by:
@@ -44,8 +44,8 @@ The `cli/model` format passes `--model <model>` to the chosen CLI. When no model
 CLI uses its own default. For `cursor`, the built-in default is `gpt-5.3-codex-high`.
 The `--mode` flag runs only the selected stage. `plan-review` requires an existing branch plan and creates `plan-review.md` on its first review pass when needed. `code-review` requires that you have already run the matching `code` stage on the same branch.
 The `--verbose` flag shows CLI tool output and merges stderr into stdout so all tool output appears on stdout.
-If both `--branch` and `--current-branch` are omitted, the launcher only infers current-branch mode when `.ai/branches/<current-branch-slug>` already exists; otherwise it fails with `error: pass --branch <name> or --current-branch`.
-With `--worktree`, the launcher uses `<repo-root>/.ai/branches/<branch-slug>/worktree` and runs the workflow there. If a branch already has a registered legacy worktree from older versions, the launcher reuses that path and prints a migration hint (`git worktree move <legacy-path> <repo-root>/.ai/branches/<branch-slug>/worktree`). `--worktree` does not support `--current-branch`.
+If both `--branch` and `--current-branch` are omitted, the launcher checks for `.aicandoit/branches/<current-branch-slug>`; if it does not exist, it fails with `error: pass --branch <name> or --current-branch`.
+With `--worktree`, the launcher uses `<repo-root>/.aicandoit/branches/<branch-slug>/worktree` and runs the workflow there. `--worktree` does not support `--current-branch`.
 
 ## Requirements
 

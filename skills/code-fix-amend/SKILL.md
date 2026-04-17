@@ -7,7 +7,7 @@ description: Apply review fixes for the `code-fix-amend` command. Use when the u
 
 ## Goal
 
-Apply `.ai/branches/{branch-slug}/code-review.md` corrections and amend the latest commit with the fix changes.
+Apply `.aicandoit/branches/{branch-slug}/code-review.md` corrections and amend the latest commit with the fix changes.
 
 ## Branch Scope
 
@@ -15,23 +15,23 @@ Apply `.ai/branches/{branch-slug}/code-review.md` corrections and amend the late
    - Run `git rev-parse --abbrev-ref HEAD`.
    - If the result is `HEAD`, use `detached-$(git rev-parse --short HEAD)`.
    - Replace `/` with `_` in the final value.
-2. Use `.ai/branches/{branch-slug}` as the artifact root for this skill.
-3. Do not write fix output to top-level `.ai/code-fix.md`.
+2. Use `.aicandoit/branches/{branch-slug}` as the artifact root for this skill.
+3. Do not write fix output to top-level `.aicandoit/code-fix.md`.
 
 ## Workflow
 
-1. Ensure .ai/ and .ai/templates/ exist in this order before any .ai/ template lookup.
+1. Ensure .aicandoit/ and .aicandoit/templates/ exist in this order before any .aicandoit/ template lookup.
 2. If the required template file does not exist, create it using the exact template content in Failure Handling.
-3. Ensure .ai/branches/{branch-slug} exists before reading or writing branch artifacts.
-4. Read `.ai/branches/{branch-slug}/code-review.md`.
-5. If `.ai/branches/{branch-slug}/code-review.md` is exactly `ALL GOOD`, respond that all is good and stop.
-6. Read `.ai/branches/{branch-slug}/plan.md` for intended scope.
-7. Extract all finding IDs from `.ai/branches/{branch-slug}/code-review.md` (`F001`, `F002`, ...).
+3. Ensure .aicandoit/branches/{branch-slug} exists before reading or writing branch artifacts.
+4. Read `.aicandoit/branches/{branch-slug}/code-review.md`.
+5. If `.aicandoit/branches/{branch-slug}/code-review.md` is exactly `ALL GOOD`, respond that all is good and stop.
+6. Read `.aicandoit/branches/{branch-slug}/plan.md` for intended scope.
+7. Extract all finding IDs from `.aicandoit/branches/{branch-slug}/code-review.md` (`F001`, `F002`, ...).
 8. Implement fixes for review findings by ID.
-9. Use `.ai/templates/code-fix.md` as the structural baseline for `.ai/branches/{branch-slug}/code-fix.md`.
-10. Map every finding ID exactly once in `.ai/branches/{branch-slug}/code-fix.md` using the output format below.
+9. Use `.aicandoit/templates/code-fix.md` as the structural baseline for `.aicandoit/branches/{branch-slug}/code-fix.md`.
+10. Map every finding ID exactly once in `.aicandoit/branches/{branch-slug}/code-fix.md` using the output format below.
 11. Run relevant validation for modified areas.
-12. Save `.ai/branches/{branch-slug}/code-fix.md`.
+12. Save `.aicandoit/branches/{branch-slug}/code-fix.md`.
 13. Amend the previous commit instead of creating a new commit.
 
 ## Commit Rules
@@ -47,22 +47,22 @@ Apply `.ai/branches/{branch-slug}/code-review.md` corrections and amend the late
 
 ## Finding ID Contract
 
-- Every `F###` in `.ai/branches/{branch-slug}/code-review.md` must appear exactly once in `.ai/branches/{branch-slug}/code-fix.md`.
-- Do not add IDs that are not present in `.ai/branches/{branch-slug}/code-review.md`.
-- Preserve ID order from `.ai/branches/{branch-slug}/code-review.md`.
+- Every `F###` in `.aicandoit/branches/{branch-slug}/code-review.md` must appear exactly once in `.aicandoit/branches/{branch-slug}/code-fix.md`.
+- Do not add IDs that are not present in `.aicandoit/branches/{branch-slug}/code-review.md`.
+- Preserve ID order from `.aicandoit/branches/{branch-slug}/code-review.md`.
 
 ## Quality Bar
 
 - Keep amended commit message accurate and concise.
-- Confirm all addressed findings are reflected in `.ai/branches/{branch-slug}/code-fix.md`.
+- Confirm all addressed findings are reflected in `.aicandoit/branches/{branch-slug}/code-fix.md`.
 - Avoid unrelated changes in the amend operation.
 
 ## Failure Handling
 
-- If `.ai/branches/{branch-slug}/code-review.md` has findings without `F###` IDs, stop and normalize review output first.
-- If `.ai/` does not exist, create it.
-- If `.ai/templates/` does not exist, create it.
-- If .ai/templates/code-fix.md does not exist, create it with exactly this content:
+- If `.aicandoit/branches/{branch-slug}/code-review.md` has findings without `F###` IDs, stop and normalize review output first.
+- If `.aicandoit/` does not exist, create it.
+- If `.aicandoit/templates/` does not exist, create it.
+- If .aicandoit/templates/code-fix.md does not exist, create it with exactly this content:
 
 ```md
 # CODE FIX
@@ -70,5 +70,5 @@ Apply `.ai/branches/{branch-slug}/code-review.md` corrections and amend the late
 - id: F001; status: <fixed|deferred|not-applicable>; summary: <what changed or why deferred>; evidence: <files and/or validation commands>
 ```
 
-- If .ai/branches/{branch-slug} does not exist, create it.
-- If `.ai/branches/{branch-slug}/code-review.md` is missing but legacy `.ai/code-review.md` exists, copy legacy content once before applying fixes.
+- If .aicandoit/branches/{branch-slug} does not exist, create it.
+- If `.aicandoit/branches/{branch-slug}/code-review.md` is missing, ask the user to run `code-review` first.
