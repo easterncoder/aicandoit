@@ -88,7 +88,8 @@ BRANCH="gh/15"
 BRANCH_PATH="gh_15"
 LOG_CONTEXT_READY=false
 LOG_DIR=""
-declare -gA LOG_SEQUENCE_COUNTER=()
+unset LOG_SEQUENCE_COUNTER
+unset LOG_SEQUENCE_VALUE
 
 build_log_file_path planner plan
 path_one="$LOG_FILE_PATH"
@@ -122,5 +123,21 @@ run_role_action reviewer code-review true >/dev/null
 reviewer_log="${ARTIFACT_ROOT}/branches/${BRANCH_PATH}/logs/reviewer-code-review-loop-001.log"
 assert_file_exists "$reviewer_log" "review loop log exists"
 assert_file_contains "$reviewer_log" "stdout:claude" "review loop log stores command output"
+
+review_file="${TMP_DIR}/code-review.md"
+run_update_stub() {
+  :
+}
+run_review_stub() {
+  printf '%s\n' 'ALL GOOD' > "$review_file"
+}
+
+rm -f "$review_file"
+review_loop "Code" "$review_file" run_update_stub run_review_stub "Coder" >/dev/null
+assert_equals "0" "${REVIEW_LOOP_ATTEMPT}" "review loop resets attempt state"
+
+run_role_action reviewer code-review false >/dev/null
+initial_review_log="${ARTIFACT_ROOT}/branches/${BRANCH_PATH}/logs/reviewer-code-review-001.log"
+assert_file_exists "$initial_review_log" "post-loop initial review log exists"
 
 echo 'logging behavior tests passed'

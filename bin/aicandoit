@@ -563,6 +563,10 @@ next_log_sequence() {
   local current=0
   local next=0
 
+  if ! declare -p LOG_SEQUENCE_COUNTER >/dev/null 2>&1; then
+    declare -gA LOG_SEQUENCE_COUNTER=()
+  fi
+
   current="${LOG_SEQUENCE_COUNTER[$key]:-0}"
   next=$((current + 1))
   LOG_SEQUENCE_COUNTER["$key"]="$next"
@@ -787,6 +791,7 @@ review_loop() {
     "$review_fn"
     sleep "$SLEEP_SECS"
   done
+  REVIEW_LOOP_ATTEMPT=0
   echo "$label is good!"
 }
 
