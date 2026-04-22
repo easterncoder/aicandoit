@@ -6,15 +6,16 @@
 
 set -euo pipefail
 
-echo "AI Can Do It"
-echo
-
-# --- Usage ---
+_CURSOR_DEFAULT="gpt-5.3-codex-high"
+AUTO_BRANCH_PREFIX="auto"
+AUTO_BRANCH_FILE_MAX_BYTES="${AUTO_BRANCH_FILE_MAX_BYTES:-65536}"
+AUTO_BRANCH_FILE_SNIPPET_BYTES="${AUTO_BRANCH_FILE_SNIPPET_BYTES:-512}"
+AUTO_BRANCH_NAME_MAX="${AUTO_BRANCH_NAME_MAX:-48}"
 
 # Print usage and exit.
 usage() {
   cat >&2 <<EOF
-Usage: aicandoit --coder <cli[/model]> --reviewer <cli[/model]> [--planner <cli[/model]>] [--mode <stage>] [--worktree] [--branch <name> | --current-branch] <prompt...>
+Usage: aicandoit --coder <cli[/model]> --reviewer <cli[/model]> [--planner <cli[/model]>] [--mode <stage>] [--worktree] [--branch <name> | --current-branch | --auto-branch] <prompt...>
 
 Options:
   -C, --coder <cli[/model]>      Coder CLI: claude, codex, or cursor; optionally append /model (required)
@@ -25,6 +26,7 @@ Options:
       --verbose                  Show CLI tool output (stderr merged to stdout)
   -B, --branch <name>            Branch to switch to or create; optional when current-branch inference succeeds
       --current-branch           Use the current git branch; optional when current-branch inference succeeds
+      --auto-branch              Derive a new branch name from the prompt before branch creation
 EOF
   exit 1
 }
@@ -142,64 +144,281 @@ resolve_branch_artifact_root() {
   printf '.aicandoit\n'
 }
 
-# --- Argument parsing ---
+# Resolve the canonical repository root from the shared git directory.
+resolve_repo_root() {
+  local common_git_dir=""
 
-CODER=""
-REVIEWER=""
-PLANNER=""
-BRANCH=""
-USE_CURRENT_BRANCH=false
-MODE=""
-MODE_SET=false
-VERBOSE=false
-USE_WORKTREE=false
+  common_git_dir="$(git rev-parse --path-format=absolute --git-common-dir)"
+  (
+    cd "${common_git_dir}/.."
+    pwd -P
+  )
+}
 
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    --coder|-C)
-      [[ $# -gt 1 ]] || { echo "error: --coder requires a value" >&2; usage; }
-      CODER="$2"; shift 2 ;;
-    --reviewer|-R)
-      [[ $# -gt 1 ]] || { echo "error: --reviewer requires a value" >&2; usage; }
-      REVIEWER="$2"; shift 2 ;;
-    --planner|-P)
-      [[ $# -gt 1 ]] || { echo "error: --planner requires a value" >&2; usage; }
-      PLANNER="$2"; shift 2 ;;
-    --mode|-M)
-      [[ $# -gt 1 ]] || { echo "error: --mode requires a value" >&2; usage; }
-      MODE="$2"; MODE_SET=true; shift 2 ;;
-    --worktree|-W) USE_WORKTREE=true; shift ;;
-    --verbose) VERBOSE=true; shift ;;
-    --branch|-B)
-      [[ $# -gt 1 ]] || { echo "error: --branch requires a value" >&2; usage; }
-      BRANCH="$2"; shift 2 ;;
-    --current-branch) USE_CURRENT_BRANCH=true; shift ;;
-    --) shift; break ;;
-    -*) echo "error: unknown option: $1" >&2; usage ;;
-    *)  break ;;
-  esac
-done
+# Reduce arbitrary text to a branch-safe slug component.
+sanitize_branch_component() {
+  local value="$1"
+  local limit="${2:-$AUTO_BRANCH_NAME_MAX}"
+  local sanitized=""
 
-PROMPT="$*"
+  sanitized="$(printf '%s' "$value" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//; s/-{2,}/-/g')"
+  if [[ -z "$sanitized" ]]; then
+    sanitized="item"
+  fi
 
-if [[ -z "$PLANNER" ]]; then
-  PLANNER="$CODER"
-fi
+  sanitized="$(printf '%s' "$sanitized" | cut -c1-"$limit" | sed -E 's/-+$//')"
+  if [[ -z "$sanitized" ]]; then
+    sanitized="item"
+  fi
 
-# Extract optional model from cli/model format
-split_cli_model "$CODER" CODER_CLI CODER_MODEL
-split_cli_model "$PLANNER" PLANNER_CLI PLANNER_MODEL
-split_cli_model "$REVIEWER" REVIEWER_CLI REVIEWER_MODEL
+  printf '%s\n' "$sanitized"
+}
 
-# Reject malformed cli/model values
-validate_cli_model --coder "$CODER" "$CODER_CLI" "$CODER_MODEL"
-validate_cli_model --planner "$PLANNER" "$PLANNER_CLI" "$PLANNER_MODEL"
-validate_cli_model --reviewer "$REVIEWER" "$REVIEWER_CLI" "$REVIEWER_MODEL"
+# Append a deterministic numeric suffix when a local branch already exists.
+resolve_unique_local_branch_name() {
+  local candidate="$1"
+  local suffix=2
+  local unique="$candidate"
 
-# --- Validation ---
+  while git show-ref --verify --quiet "refs/heads/$unique"; do
+    unique="${candidate}-${suffix}"
+    suffix=$((suffix + 1))
+  done
 
-# Check that a CLI name is supported.
-valid_cli() { [[ "$1" == "claude" || "$1" == "codex" || "$1" == "cursor" ]]; }
+  printf '%s\n' "$unique"
+}
+
+# Extract the first issue number reference from a prompt.
+extract_issue_number_from_prompt() {
+  local prompt="$1"
+
+  if [[ "$prompt" =~ (^|[^[:alnum:]])gh[[:space:]]+issue[[:space:]]+([0-9]+)([^[:digit:]]|$) ]]; then
+    printf '%s\n' "${BASH_REMATCH[2]}"
+    return 0
+  fi
+
+  if [[ "$prompt" =~ (^|[^[:alnum:]])issue[[:space:]]+([0-9]+)([^[:digit:]]|$) ]]; then
+    printf '%s\n' "${BASH_REMATCH[2]}"
+    return 0
+  fi
+
+  return 1
+}
+
+# Resolve an issue title from a fixture variable or gh.
+fetch_issue_title() {
+  local issue_number="$1"
+  local fixture_var="AICANDOIT_ISSUE_TITLE_${issue_number}"
+  local fixture_value="${!fixture_var-}"
+  local title=""
+
+  if [[ -n "$fixture_value" ]]; then
+    printf '%s\n' "$fixture_value"
+    return 0
+  fi
+
+  title="$(gh issue view "$issue_number" --json title --jq .title 2>/dev/null || true)"
+  if [[ -n "$title" ]]; then
+    printf '%s\n' "$title"
+    return 0
+  fi
+
+  return 1
+}
+
+# Build an issue-derived branch name.
+build_issue_branch_name() {
+  local issue_number="$1"
+  local title="$2"
+  local title_slug=""
+  local candidate=""
+
+  title_slug="$(sanitize_branch_component "$title" 36)"
+  candidate="${AUTO_BRANCH_PREFIX}/issue-${issue_number}"
+  if [[ -n "$title_slug" && "$title_slug" != "item" ]]; then
+    candidate="${candidate}-${title_slug}"
+  fi
+
+  printf '%s\n' "$candidate"
+}
+
+# Trim prompt token wrappers before testing it as a file path.
+normalize_prompt_path_token() {
+  local token="$1"
+  local first_char=""
+  local last_char=""
+
+  while [[ -n "$token" ]]; do
+    first_char="${token:0:1}"
+    if [[ "$first_char" == '"' || "$first_char" == "'" || "$first_char" == '`' || "$first_char" == '(' || "$first_char" == '<' || "$first_char" == '[' ]]; then
+        token="${token#?}"
+    else
+      break
+    fi
+  done
+
+  while [[ -n "$token" ]]; do
+    last_char="${token: -1}"
+    if [[ "$last_char" == '"' || "$last_char" == "'" || "$last_char" == '`' || "$last_char" == ')' || "$last_char" == ',' || "$last_char" == '.' || "$last_char" == ';' || "$last_char" == ':' || "$last_char" == '!' || "$last_char" == '?' || "$last_char" == ']' || "$last_char" == '}' || "$last_char" == '>' ]]; then
+      token="${token%?}"
+    else
+      break
+    fi
+  done
+
+  printf '%s\n' "$token"
+}
+
+# Determine whether a prompt token looks like a file path.
+looks_like_path_candidate() {
+  local token="$1"
+
+  [[ "$token" == */* || "$token" == .* || "$token" == *.* ]]
+}
+
+# Resolve a prompt file candidate to a readable repo-local file.
+resolve_repo_local_file() {
+  local repo_root="$1"
+  local candidate="$2"
+  local resolved_dir=""
+  local resolved_path=""
+
+  [[ -n "$candidate" ]] || return 1
+
+  if [[ "$candidate" == /* ]]; then
+    resolved_path="$candidate"
+  else
+    resolved_dir="$(cd "$repo_root" && cd "$(dirname "$candidate")" 2>/dev/null && pwd -P)" || return 1
+    resolved_path="${resolved_dir}/$(basename "$candidate")"
+  fi
+
+  [[ -f "$resolved_path" ]] || return 1
+  [[ "$resolved_path" == "$repo_root" || "$resolved_path" == "$repo_root"/* ]] || return 1
+
+  printf '%s\n' "$resolved_path"
+}
+
+# Find the first repo-local file reference inside a prompt.
+extract_prompt_file_reference() {
+  local prompt="$1"
+  local repo_root="$2"
+  local token=""
+  local candidate=""
+  local resolved_path=""
+
+  for token in $prompt; do
+    candidate="$(normalize_prompt_path_token "$token")"
+    if ! looks_like_path_candidate "$candidate"; then
+      continue
+    fi
+    resolved_path="$(resolve_repo_local_file "$repo_root" "$candidate" 2>/dev/null || true)"
+    if [[ -n "$resolved_path" ]]; then
+      printf '%s\n' "$resolved_path"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+# Enforce the maximum readable file size for auto-branch resolution.
+file_within_auto_branch_limit() {
+  local path="$1"
+  local size="0"
+
+  size="$(wc -c < "$path")"
+  [[ "$size" -le "$AUTO_BRANCH_FILE_MAX_BYTES" ]]
+}
+
+# Detect whether a file should be treated as text.
+is_probably_text_file() {
+  local path="$1"
+
+  LC_ALL=C grep -Iq . "$path" || [[ ! -s "$path" ]]
+}
+
+# Read a stable leading snippet from a text file.
+read_auto_branch_file_snippet() {
+  local path="$1"
+
+  head -c "$AUTO_BRANCH_FILE_SNIPPET_BYTES" "$path"
+}
+
+# Select the first non-empty line from a file snippet.
+extract_file_context_line() {
+  local snippet="$1"
+  local line=""
+
+  while IFS= read -r line; do
+    line="$(printf '%s' "$line" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
+    if [[ -n "$line" ]]; then
+      printf '%s\n' "$line"
+      return 0
+    fi
+  done <<< "$snippet"
+
+  return 1
+}
+
+# Build a file-derived branch name from basename and leading text.
+build_file_branch_name() {
+  local path="$1"
+  local snippet="$2"
+  local basename_slug=""
+  local context_line=""
+  local context_slug=""
+  local candidate=""
+
+  basename_slug="$(sanitize_branch_component "$(basename "$path")" 18)"
+  context_line="$(extract_file_context_line "$snippet" 2>/dev/null || true)"
+  context_slug="$(sanitize_branch_component "$context_line" 28)"
+  candidate="${AUTO_BRANCH_PREFIX}/${basename_slug}"
+
+  if [[ -n "$context_line" && "$context_slug" != "item" ]]; then
+    candidate="${candidate}-${context_slug}"
+  fi
+
+  printf '%s\n' "$candidate"
+}
+
+# Build a prompt-derived fallback branch name.
+build_prompt_branch_name() {
+  local prompt="$1"
+  local prompt_slug=""
+
+  prompt_slug="$(sanitize_branch_component "$prompt" 48)"
+  printf '%s/%s\n' "$AUTO_BRANCH_PREFIX" "$prompt_slug"
+}
+
+# Resolve a deterministic branch name from issue, file, or prompt text.
+resolve_auto_branch_name() {
+  local prompt="$1"
+  local repo_root="$2"
+  local issue_number=""
+  local issue_title=""
+  local file_path=""
+  local snippet=""
+  local candidate=""
+
+  issue_number="$(extract_issue_number_from_prompt "$prompt" 2>/dev/null || true)"
+  if [[ -n "$issue_number" ]]; then
+    issue_title="$(fetch_issue_title "$issue_number" 2>/dev/null || true)"
+    candidate="$(build_issue_branch_name "$issue_number" "$issue_title")"
+    resolve_unique_local_branch_name "$candidate"
+    return 0
+  fi
+
+  file_path="$(extract_prompt_file_reference "$prompt" "$repo_root" 2>/dev/null || true)"
+  if [[ -n "$file_path" ]] && file_within_auto_branch_limit "$file_path" && is_probably_text_file "$file_path"; then
+    snippet="$(read_auto_branch_file_snippet "$file_path")"
+    candidate="$(build_file_branch_name "$file_path" "$snippet")"
+    resolve_unique_local_branch_name "$candidate"
+    return 0
+  fi
+
+  candidate="$(build_prompt_branch_name "$prompt")"
+  resolve_unique_local_branch_name "$candidate"
+}
 
 # Determine whether the selected mode requires a non-empty prompt.
 prompt_required_for_mode() {
@@ -208,105 +427,47 @@ prompt_required_for_mode() {
   [[ "$mode" == "all" || "$mode" == "plan" ]]
 }
 
-if ! valid_cli "$CODER_CLI"; then
-  echo "error: --coder must be claude, codex, or cursor (got: $CODER_CLI)" >&2
-  usage
-fi
-if ! valid_cli "$PLANNER_CLI"; then
-  echo "error: --planner must be claude, codex, or cursor (got: $PLANNER_CLI)" >&2
-  usage
-fi
-if ! valid_cli "$REVIEWER_CLI"; then
-  echo "error: --reviewer must be claude, codex, or cursor (got: $REVIEWER_CLI)" >&2
-  usage
-fi
-# Normalize effective models for same-CLI comparison.
-# cursor has a built-in default; treat an empty model as that default so
-# cursor/gpt-5.3-codex-high and cursor (no model) are treated as identical.
-_CURSOR_DEFAULT="gpt-5.3-codex-high"
-_CODER_EFF_MODEL="$(effective_model "$CODER_CLI" "$CODER_MODEL")"
-_PLANNER_EFF_MODEL="$(effective_model "$PLANNER_CLI" "$PLANNER_MODEL")"
-_REVIEWER_EFF_MODEL="$(effective_model "$REVIEWER_CLI" "$REVIEWER_MODEL")"
-if [[ "$CODER_CLI" == "$REVIEWER_CLI" && "$_CODER_EFF_MODEL" == "$_REVIEWER_EFF_MODEL" ]]; then
-  echo "error: coder and reviewer must differ; use different CLIs or different models" >&2
-  exit 1
-fi
-if [[ "$PLANNER_CLI" == "$REVIEWER_CLI" && "$_PLANNER_EFF_MODEL" == "$_REVIEWER_EFF_MODEL" ]]; then
-  echo "error: planner and reviewer must differ; use different CLIs or different models" >&2
-  exit 1
-fi
-PLANNER_MATCHES_CODER=false
-if [[ "$PLANNER_CLI" == "$CODER_CLI" && "$_PLANNER_EFF_MODEL" == "$_CODER_EFF_MODEL" ]]; then
-  PLANNER_MATCHES_CODER=true
-fi
-if [[ -n "$BRANCH" && "$USE_CURRENT_BRANCH" == true ]]; then
-  echo "error: --branch and --current-branch are mutually exclusive" >&2
-  exit 1
-fi
-if [[ -z "$BRANCH" && "$USE_CURRENT_BRANCH" == false ]]; then
-  CURRENT_BRANCH_CANDIDATE="$(resolve_current_branch_name)"
-  if [[ "$CURRENT_BRANCH_CANDIDATE" != "HEAD" ]]; then
-    CURRENT_BRANCH_PATH="$(branch_to_slug "$CURRENT_BRANCH_CANDIDATE")"
-    if branch_artifact_dir_exists ".aicandoit" "$CURRENT_BRANCH_PATH"; then
-      USE_CURRENT_BRANCH=true
-    fi
+# Resolve the final target branch before checkout or worktree handling.
+resolve_target_branch_name() {
+  local current_branch=""
+  local current_branch_path=""
+  local repo_root=""
+
+  if [[ "$AUTO_BRANCH" == true ]]; then
+    repo_root="$(resolve_repo_root)"
+    BRANCH="$(resolve_auto_branch_name "$PROMPT" "$repo_root")"
+    return 0
   fi
-  if [[ "$USE_CURRENT_BRANCH" == false ]]; then
-    echo "error: pass --branch <name> or --current-branch" >&2
-    usage
+
+  if [[ -n "$BRANCH" ]]; then
+    return 0
   fi
-fi
-if [[ "$USE_WORKTREE" == true && "$USE_CURRENT_BRANCH" == true ]]; then
-  echo "error: --worktree does not support --current-branch; pass --branch <name> instead" >&2
-  exit 1
-fi
-if [[ "$MODE_SET" == true ]]; then
-  case "$MODE" in
-    plan|plan-review|code|code-review) ;;
-    *)
-      echo "error: --mode must be plan, plan-review, code, or code-review (got: $MODE)" >&2
-      usage
-      ;;
-  esac
-else
-  MODE="all"
-fi
-if [[ -z "$PROMPT" ]] && prompt_required_for_mode "$MODE"; then
-  echo "error: prompt is required" >&2
+
+  current_branch="$(resolve_current_branch_name)"
+  if [[ "$current_branch" == "HEAD" ]]; then
+    current_branch="detached-$(git rev-parse --short HEAD)"
+  fi
+
+  if [[ "$USE_CURRENT_BRANCH" == true ]]; then
+    BRANCH="$current_branch"
+    return 0
+  fi
+
+  current_branch_path="$(branch_to_slug "$current_branch")"
+  if branch_artifact_dir_exists ".aicandoit" "$current_branch_path"; then
+    USE_CURRENT_BRANCH=true
+    BRANCH="$current_branch"
+    return 0
+  fi
+
+  echo "error: pass --branch <name>, --current-branch, or --auto-branch" >&2
   usage
-fi
+}
 
-echo "Coder:    ${CODER_CLI}${CODER_MODEL:+ (model: $CODER_MODEL)}"
-echo "Planner:  ${PLANNER_CLI}${PLANNER_MODEL:+ (model: $PLANNER_MODEL)}"
-echo "Reviewer: ${REVIEWER_CLI}${REVIEWER_MODEL:+ (model: $REVIEWER_MODEL)}"
-echo "Prompt:   $PROMPT"
-echo
-
-# --- Dependency checks ---
-
-command -v git >/dev/null || { echo "git not found in PATH" >&2; exit 127; }
-command -v gh  >/dev/null || { echo "gh not found in PATH"  >&2; exit 127; }
-if [[ "$CODER_CLI" == "claude" || "$PLANNER_CLI" == "claude" || "$REVIEWER_CLI" == "claude" ]]; then
-  command -v claude >/dev/null || { echo "claude not found in PATH" >&2; exit 127; }
-fi
-if [[ "$CODER_CLI" == "codex" || "$PLANNER_CLI" == "codex" || "$REVIEWER_CLI" == "codex" ]]; then
-  command -v codex >/dev/null || { echo "codex not found in PATH" >&2; exit 127; }
-fi
-if [[ "$CODER_CLI" == "cursor" || "$PLANNER_CLI" == "cursor" || "$REVIEWER_CLI" == "cursor" ]]; then
-  command -v cursor-agent >/dev/null || { echo "cursor-agent not found in PATH" >&2; exit 127; }
-fi
-
-# --- Constants ---
-
-MAX_TRIES="${MAX_TRIES:-20}"
-SLEEP_SECS="${SLEEP_SECS:-0.2}"
-CODEX_BASE_ARGS="--sandbox workspace-write -a never"
-build_cursor_args "$CODER_MODEL" CODER_CURSOR_ARGS
-build_cursor_args "$PLANNER_MODEL" PLANNER_CURSOR_ARGS
-build_cursor_args "$REVIEWER_MODEL" REVIEWER_CURSOR_ARGS
-build_model_args "$CODER_MODEL" CODER_CLAUDE_MODEL CODER_CODEX_MODEL
-build_model_args "$PLANNER_MODEL" PLANNER_CLAUDE_MODEL PLANNER_CODEX_MODEL
-build_model_args "$REVIEWER_MODEL" REVIEWER_CLAUDE_MODEL REVIEWER_CODEX_MODEL
+# Check that a CLI name is supported.
+valid_cli() {
+  [[ "$1" == "claude" || "$1" == "codex" || "$1" == "cursor" ]]
+}
 
 # Run a CLI command honoring the VERBOSE flag.
 run_cli() {
@@ -316,8 +477,6 @@ run_cli() {
     "$@" >/dev/null 2>&1
   fi
 }
-
-# --- Coder functions ---
 
 # Run the initial plan step using the planner role.
 run_plan() {
@@ -363,8 +522,6 @@ run_code_fix() {
   esac
 }
 
-# --- Reviewer functions ---
-
 # Run the initial plan review using the reviewer role.
 run_plan_review() {
   case "$REVIEWER_CLI" in
@@ -401,8 +558,6 @@ run_code_review_loop() {
   esac
 }
 
-# --- Review loop ---
-
 # Run the review loop until the review file is marked ALL GOOD.
 review_loop() {
   local label="$1"
@@ -427,17 +582,6 @@ review_loop() {
     sleep "$SLEEP_SECS"
   done
   echo "$label is good!"
-}
-
-# Resolve the canonical repository root from the shared git directory.
-resolve_repo_root() {
-  local common_git_dir=""
-
-  common_git_dir="$(git rev-parse --path-format=absolute --git-common-dir)"
-  (
-    cd "${common_git_dir}/.."
-    pwd -P
-  )
 }
 
 # Resolve the default branch start ref with remote HEAD and local defaults.
@@ -535,117 +679,306 @@ ensure_worktree_for_branch() {
   fi
 }
 
-# --- Branch resolution ---
+# Parse the launcher arguments into global state.
+parse_args() {
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --coder|-C)
+        [[ $# -gt 1 ]] || { echo "error: --coder requires a value" >&2; usage; }
+        CODER="$2"; shift 2 ;;
+      --reviewer|-R)
+        [[ $# -gt 1 ]] || { echo "error: --reviewer requires a value" >&2; usage; }
+        REVIEWER="$2"; shift 2 ;;
+      --planner|-P)
+        [[ $# -gt 1 ]] || { echo "error: --planner requires a value" >&2; usage; }
+        PLANNER="$2"; shift 2 ;;
+      --mode|-M)
+        [[ $# -gt 1 ]] || { echo "error: --mode requires a value" >&2; usage; }
+        MODE="$2"; MODE_SET=true; shift 2 ;;
+      --worktree|-W) USE_WORKTREE=true; shift ;;
+      --verbose) VERBOSE=true; shift ;;
+      --branch|-B)
+        [[ $# -gt 1 ]] || { echo "error: --branch requires a value" >&2; usage; }
+        BRANCH="$2"; shift 2 ;;
+      --current-branch) USE_CURRENT_BRANCH=true; shift ;;
+      --auto-branch) AUTO_BRANCH=true; shift ;;
+      --) shift; break ;;
+      -*) echo "error: unknown option: $1" >&2; usage ;;
+      *)  break ;;
+    esac
+  done
 
-if [[ "$USE_WORKTREE" == true ]]; then
-  REPO_ROOT="$(resolve_repo_root)"
-  DEFAULT_START_REF="$(resolve_default_start_ref)"
-  SOURCE_CHECKOUT_PATH="$(pwd -P)"
-  WORKTREE_PATH="$(resolve_worktree_path "$REPO_ROOT" "$BRANCH")"
+  PROMPT="$*"
+}
 
-  echo "Using worktree for branch: $BRANCH"
-  echo "Worktree path: $WORKTREE_PATH"
-  ensure_worktree_for_branch "$BRANCH" "$WORKTREE_PATH" "$DEFAULT_START_REF" "$SOURCE_CHECKOUT_PATH"
-  cd "$WORKTREE_PATH"
-else
-  if [[ "$USE_CURRENT_BRANCH" == true ]]; then
-    BRANCH="$(resolve_current_branch_name)"
-    if [[ "$BRANCH" == "HEAD" ]]; then
-      BRANCH="detached-$(git rev-parse --short HEAD)"
-    fi
-    echo "Using current branch: $BRANCH"
+# Validate the parsed arguments before running the workflow.
+validate_args() {
+  if [[ -z "$PLANNER" ]]; then
+    PLANNER="$CODER"
+  fi
+
+  split_cli_model "$CODER" CODER_CLI CODER_MODEL
+  split_cli_model "$PLANNER" PLANNER_CLI PLANNER_MODEL
+  split_cli_model "$REVIEWER" REVIEWER_CLI REVIEWER_MODEL
+
+  validate_cli_model --coder "$CODER" "$CODER_CLI" "$CODER_MODEL"
+  validate_cli_model --planner "$PLANNER" "$PLANNER_CLI" "$PLANNER_MODEL"
+  validate_cli_model --reviewer "$REVIEWER" "$REVIEWER_CLI" "$REVIEWER_MODEL"
+
+  if ! valid_cli "$CODER_CLI"; then
+    echo "error: --coder must be claude, codex, or cursor (got: $CODER_CLI)" >&2
+    usage
+  fi
+  if ! valid_cli "$PLANNER_CLI"; then
+    echo "error: --planner must be claude, codex, or cursor (got: $PLANNER_CLI)" >&2
+    usage
+  fi
+  if ! valid_cli "$REVIEWER_CLI"; then
+    echo "error: --reviewer must be claude, codex, or cursor (got: $REVIEWER_CLI)" >&2
+    usage
+  fi
+
+  _CODER_EFF_MODEL="$(effective_model "$CODER_CLI" "$CODER_MODEL")"
+  _PLANNER_EFF_MODEL="$(effective_model "$PLANNER_CLI" "$PLANNER_MODEL")"
+  _REVIEWER_EFF_MODEL="$(effective_model "$REVIEWER_CLI" "$REVIEWER_MODEL")"
+  if [[ "$CODER_CLI" == "$REVIEWER_CLI" && "$_CODER_EFF_MODEL" == "$_REVIEWER_EFF_MODEL" ]]; then
+    echo "error: coder and reviewer must differ; use different CLIs or different models" >&2
+    exit 1
+  fi
+  if [[ "$PLANNER_CLI" == "$REVIEWER_CLI" && "$_PLANNER_EFF_MODEL" == "$_REVIEWER_EFF_MODEL" ]]; then
+    echo "error: planner and reviewer must differ; use different CLIs or different models" >&2
+    exit 1
+  fi
+
+  PLANNER_MATCHES_CODER=false
+  if [[ "$PLANNER_CLI" == "$CODER_CLI" && "$_PLANNER_EFF_MODEL" == "$_CODER_EFF_MODEL" ]]; then
+    PLANNER_MATCHES_CODER=true
+  fi
+
+  if [[ -n "$BRANCH" && "$USE_CURRENT_BRANCH" == true ]]; then
+    echo "error: --branch and --current-branch are mutually exclusive" >&2
+    exit 1
+  fi
+  if [[ "$AUTO_BRANCH" == true && ( -n "$BRANCH" || "$USE_CURRENT_BRANCH" == true ) ]]; then
+    echo "error: --auto-branch is mutually exclusive with --branch and --current-branch" >&2
+    exit 1
+  fi
+  if [[ "$USE_WORKTREE" == true && "$USE_CURRENT_BRANCH" == true ]]; then
+    echo "error: --worktree does not support --current-branch; pass --branch <name> instead" >&2
+    exit 1
+  fi
+
+  if [[ "$MODE_SET" == true ]]; then
+    case "$MODE" in
+      plan|plan-review|code|code-review) ;;
+      *)
+        echo "error: --mode must be plan, plan-review, code, or code-review (got: $MODE)" >&2
+        usage
+        ;;
+    esac
   else
-    if git show-ref --verify --quiet "refs/heads/$BRANCH"; then
-      echo "Switching to branch: $BRANCH"
-      git checkout "$BRANCH"
-    else
-      echo "Creating branch: $BRANCH"
-      git checkout -b "$BRANCH"
+    MODE="all"
+  fi
+
+  if [[ -z "$PROMPT" ]]; then
+    if [[ "$AUTO_BRANCH" == true ]] || prompt_required_for_mode "$MODE"; then
+      echo "error: prompt is required" >&2
+      usage
     fi
   fi
-fi
+}
 
-BRANCH_PATH="$(branch_to_slug "$BRANCH")"
-ARTIFACT_ROOT="$(resolve_branch_artifact_root "$BRANCH")"
-PLAN_PATH="${ARTIFACT_ROOT}/branches/${BRANCH_PATH}/plan.md"
-PLAN_FILE="${ARTIFACT_ROOT}/branches/${BRANCH_PATH}/plan-review.md"
-CODE_FILE="${ARTIFACT_ROOT}/branches/${BRANCH_PATH}/code-review.md"
+# Verify the required external commands exist.
+check_dependencies() {
+  command -v git >/dev/null || { echo "git not found in PATH" >&2; exit 127; }
+  command -v gh  >/dev/null || { echo "gh not found in PATH"  >&2; exit 127; }
+  if [[ "$CODER_CLI" == "claude" || "$PLANNER_CLI" == "claude" || "$REVIEWER_CLI" == "claude" ]]; then
+    command -v claude >/dev/null || { echo "claude not found in PATH" >&2; exit 127; }
+  fi
+  if [[ "$CODER_CLI" == "codex" || "$PLANNER_CLI" == "codex" || "$REVIEWER_CLI" == "codex" ]]; then
+    command -v codex >/dev/null || { echo "codex not found in PATH" >&2; exit 127; }
+  fi
+  if [[ "$CODER_CLI" == "cursor" || "$PLANNER_CLI" == "cursor" || "$REVIEWER_CLI" == "cursor" ]]; then
+    command -v cursor-agent >/dev/null || { echo "cursor-agent not found in PATH" >&2; exit 127; }
+  fi
+}
 
-if [[ "$MODE" == "plan-review" ]]; then
-  if [[ ! -f "$PLAN_PATH" ]]; then
+# Print the chosen workflow configuration.
+print_configuration() {
+  echo "Coder:    ${CODER_CLI}${CODER_MODEL:+ (model: $CODER_MODEL)}"
+  echo "Planner:  ${PLANNER_CLI}${PLANNER_MODEL:+ (model: $PLANNER_MODEL)}"
+  echo "Reviewer: ${REVIEWER_CLI}${REVIEWER_MODEL:+ (model: $REVIEWER_MODEL)}"
+  echo "Prompt:   $PROMPT"
+  echo
+}
+
+# Prepare CLI argument arrays and workflow constants.
+initialize_runtime_state() {
+  MAX_TRIES="${MAX_TRIES:-20}"
+  SLEEP_SECS="${SLEEP_SECS:-0.2}"
+  CODEX_BASE_ARGS="--sandbox workspace-write -a never"
+
+  build_cursor_args "$CODER_MODEL" CODER_CURSOR_ARGS
+  build_cursor_args "$PLANNER_MODEL" PLANNER_CURSOR_ARGS
+  build_cursor_args "$REVIEWER_MODEL" REVIEWER_CURSOR_ARGS
+  build_model_args "$CODER_MODEL" CODER_CLAUDE_MODEL CODER_CODEX_MODEL
+  build_model_args "$PLANNER_MODEL" PLANNER_CLAUDE_MODEL PLANNER_CODEX_MODEL
+  build_model_args "$REVIEWER_MODEL" REVIEWER_CLAUDE_MODEL REVIEWER_CODEX_MODEL
+}
+
+# Prepare the branch checkout or worktree before workflow execution.
+prepare_branch_checkout() {
+  resolve_target_branch_name
+
+  if [[ "$USE_WORKTREE" == true ]]; then
+    REPO_ROOT="$(resolve_repo_root)"
+    DEFAULT_START_REF="$(resolve_default_start_ref)"
+    SOURCE_CHECKOUT_PATH="$(pwd -P)"
+    WORKTREE_PATH="$(resolve_worktree_path "$REPO_ROOT" "$BRANCH")"
+
+    if [[ "$AUTO_BRANCH" == true ]]; then
+      echo "Using auto branch worktree: $BRANCH"
+    else
+      echo "Using worktree for branch: $BRANCH"
+    fi
+    echo "Worktree path: $WORKTREE_PATH"
+    ensure_worktree_for_branch "$BRANCH" "$WORKTREE_PATH" "$DEFAULT_START_REF" "$SOURCE_CHECKOUT_PATH"
+    cd "$WORKTREE_PATH"
+    return 0
+  fi
+
+  if [[ "$USE_CURRENT_BRANCH" == true ]]; then
+    echo "Using current branch: $BRANCH"
+    return 0
+  fi
+
+  if [[ "$AUTO_BRANCH" == true ]]; then
+    echo "Using auto branch: $BRANCH"
+  fi
+
+  if git show-ref --verify --quiet "refs/heads/$BRANCH"; then
+    echo "Switching to branch: $BRANCH"
+    git checkout "$BRANCH"
+  else
+    echo "Creating branch: $BRANCH"
+    git checkout -b "$BRANCH"
+  fi
+}
+
+# Resolve branch-scoped artifact paths after branch setup.
+resolve_artifact_paths() {
+  BRANCH_PATH="$(branch_to_slug "$BRANCH")"
+  ARTIFACT_ROOT="$(resolve_branch_artifact_root "$BRANCH")"
+  PLAN_PATH="${ARTIFACT_ROOT}/branches/${BRANCH_PATH}/plan.md"
+  PLAN_FILE="${ARTIFACT_ROOT}/branches/${BRANCH_PATH}/plan-review.md"
+  CODE_FILE="${ARTIFACT_ROOT}/branches/${BRANCH_PATH}/code-review.md"
+}
+
+# Validate mode-specific artifact prerequisites.
+validate_mode_prerequisites() {
+  if [[ "$MODE" == "plan-review" && ! -f "$PLAN_PATH" ]]; then
     echo "error: --mode plan-review requires an existing plan for this branch; run --mode plan first" >&2
     exit 1
   fi
-fi
-if [[ "$MODE" == "code" ]]; then
-  if [[ ! -f "$PLAN_PATH" ]]; then
+  if [[ "$MODE" == "code" && ! -f "$PLAN_PATH" ]]; then
     echo "error: --mode code requires an approved plan for this branch; run --mode plan first" >&2
     exit 1
   fi
-fi
-if [[ "$MODE" == "code-review" ]]; then
-  if [[ ! -f "$CODE_FILE" ]]; then
+  if [[ "$MODE" == "code-review" && ! -f "$CODE_FILE" ]]; then
     echo "error: --mode code-review requires an existing code review; run --mode code first" >&2
     exit 1
   fi
-fi
+}
 
-# --- Main workflow ---
-
-case "$MODE" in
-  plan)
-    echo
-    echo "Planner is planning..."
-    run_plan
-
-    echo "Reviewer is reviewing the plan..."
-    run_plan_review
-    echo "AI Can Do It finished the workflow."
-    exit 0
-    ;;
-  plan-review)
-    if [[ ! -f "$PLAN_FILE" ]]; then
+# Run the selected workflow mode.
+run_selected_mode() {
+  case "$MODE" in
+    plan)
       echo
+      echo "Planner is planning..."
+      run_plan
+
       echo "Reviewer is reviewing the plan..."
       run_plan_review
-    fi
-    review_loop "Plan" "$PLAN_FILE" run_plan_update run_plan_review_loop "Planner"
-    echo "AI Can Do It finished the workflow."
-    exit 0
-    ;;
-  code)
-    echo
-    echo "Coder is implementing..."
-    run_code
+      echo "AI Can Do It finished the workflow."
+      return 0
+      ;;
+    plan-review)
+      if [[ ! -f "$PLAN_FILE" ]]; then
+        echo
+        echo "Reviewer is reviewing the plan..."
+        run_plan_review
+      fi
+      review_loop "Plan" "$PLAN_FILE" run_plan_update run_plan_review_loop "Planner"
+      echo "AI Can Do It finished the workflow."
+      return 0
+      ;;
+    code)
+      echo
+      echo "Coder is implementing..."
+      run_code
 
-    echo "Reviewer is reviewing the code..."
-    run_code_review
-    echo "AI Can Do It finished the workflow."
-    exit 0
-    ;;
-  code-review)
-    review_loop "Code" "$CODE_FILE" run_code_fix run_code_review_loop "Coder"
-    echo "AI Can Do It finished the workflow."
-    exit 0
-    ;;
-esac
+      echo "Reviewer is reviewing the code..."
+      run_code_review
+      echo "AI Can Do It finished the workflow."
+      return 0
+      ;;
+    code-review)
+      review_loop "Code" "$CODE_FILE" run_code_fix run_code_review_loop "Coder"
+      echo "AI Can Do It finished the workflow."
+      return 0
+      ;;
+  esac
 
-echo
-echo "Planner is planning..."
-run_plan
+  echo
+  echo "Planner is planning..."
+  run_plan
 
-echo "Reviewer is reviewing the plan..."
-run_plan_review
+  echo "Reviewer is reviewing the plan..."
+  run_plan_review
 
-review_loop "Plan" "$PLAN_FILE" run_plan_update run_plan_review_loop "Planner"
+  review_loop "Plan" "$PLAN_FILE" run_plan_update run_plan_review_loop "Planner"
 
-echo
-echo "Coder is implementing..."
-run_code
+  echo
+  echo "Coder is implementing..."
+  run_code
 
-echo "Reviewer is reviewing the code..."
-run_code_review
+  echo "Reviewer is reviewing the code..."
+  run_code_review
 
-review_loop "Code" "$CODE_FILE" run_code_fix run_code_review_loop "Coder"
+  review_loop "Code" "$CODE_FILE" run_code_fix run_code_review_loop "Coder"
 
-echo "AI Can Do It finished the workflow."
+  echo "AI Can Do It finished the workflow."
+}
+
+# Run the launcher.
+main() {
+  CODER=""
+  REVIEWER=""
+  PLANNER=""
+  BRANCH=""
+  USE_CURRENT_BRANCH=false
+  AUTO_BRANCH=false
+  MODE=""
+  MODE_SET=false
+  VERBOSE=false
+  USE_WORKTREE=false
+  PROMPT=""
+
+  echo "AI Can Do It"
+  echo
+
+  parse_args "$@"
+  validate_args
+  print_configuration
+  check_dependencies
+  initialize_runtime_state
+  prepare_branch_checkout
+  resolve_artifact_paths
+  validate_mode_prerequisites
+  run_selected_mode
+}
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  main "$@"
+fi
