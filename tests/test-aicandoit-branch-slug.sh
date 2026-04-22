@@ -46,4 +46,14 @@ assert_equals "$slug_one" "$slug_one_repeat" 'deterministic slug'
 [[ "$slug_one" =~ ^feature_a_b-[0-9a-f]{10}$ ]] || fail "slug pattern mismatch for feature/a_b: $slug_one"
 [[ "$slug_two" =~ ^feature_a_b-[0-9a-f]{10}$ ]] || fail "slug pattern mismatch for feature_a/b: $slug_two"
 
+TMP_DIR="$(mktemp -d)"
+trap 'rm -rf "$TMP_DIR"' EXIT
+mkdir -p "${TMP_DIR}/.aicandoit/branches/gh_13"
+
+resolved_existing_slug="$(resolve_branch_artifact_slug 'gh/13' "${TMP_DIR}/.aicandoit")"
+assert_equals 'gh_13' "$resolved_existing_slug" 'legacy artifact compatibility slug'
+
+resolved_new_slug="$(resolve_branch_artifact_slug 'feature/a_b' "${TMP_DIR}/.aicandoit")"
+assert_equals "$slug_one" "$resolved_new_slug" 'new artifact slug when no legacy directory'
+
 echo 'branch slug helper tests passed'

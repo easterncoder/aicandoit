@@ -104,15 +104,29 @@ hash_branch_name() {
   local branch="$1"
   local digest=""
 
-  if command -v sha256sum >/dev/null 2>&1 && digest="$(printf '%s' "$branch" | sha256sum 2>/dev/null | awk '{print $1}')" && [[ -n "$digest" ]]; then
-    :
-  elif command -v shasum >/dev/null 2>&1 && digest="$(printf '%s' "$branch" | shasum -a 256 2>/dev/null | awk '{print $1}')" && [[ -n "$digest" ]]; then
-    :
-  else
-    digest="$(printf '%s' "$branch" | git hash-object --stdin)"
+  if command -v sha256sum >/dev/null 2>&1; then
+    digest="$(printf '%s' "$branch" | sha256sum 2>/dev/null | awk '{print $1}' || true)"
+  fi
+  if [[ -z "$digest" ]] && command -v shasum >/dev/null 2>&1; then
+    digest="$(printf '%s' "$branch" | shasum -a 256 2>/dev/null | awk '{print $1}' || true)"
+  fi
+  if [[ -z "$digest" ]] && command -v openssl >/dev/null 2>&1; then
+    digest="$(printf '%s' "$branch" | openssl dgst -sha256 2>/dev/null | awk '{print $NF}' || true)"
+  fi
+
+  if [[ -z "$digest" ]]; then
+    echo "error: branch slug hashing requires sha256sum, shasum, or openssl" >&2
+    return 1
   fi
 
   printf '%s\n' "$digest"
+}
+
+# Resolve the legacy branch slug used before collision-safe hashing.
+legacy_branch_to_slug() {
+  local branch="$1"
+
+  printf '%s\n' "${branch//\//_}"
 }
 
 # Resolve the branch slug used by branch-scoped artifact paths.
@@ -131,6 +145,28 @@ branch_to_slug() {
   suffix="$(printf '%s' "$digest" | cut -c1-10)"
 
   printf '%s-%s\n' "$base" "$suffix"
+}
+
+# Resolve the branch artifact slug, preserving compatibility with legacy paths.
+resolve_branch_artifact_slug() {
+  local branch="$1"
+  local artifact_root="${2:-.aicandoit}"
+  local branch_path=""
+  local legacy_path=""
+
+  branch_path="$(branch_to_slug "$branch")"
+  if [[ -d "${artifact_root}/branches/${branch_path}" ]]; then
+    printf '%s\n' "$branch_path"
+    return 0
+  fi
+
+  legacy_path="$(legacy_branch_to_slug "$branch")"
+  if [[ -d "${artifact_root}/branches/${legacy_path}" ]]; then
+    printf '%s\n' "$legacy_path"
+    return 0
+  fi
+
+  printf '%s\n' "$branch_path"
 }
 
 # Resolve the current branch name without requiring an existing commit.
@@ -167,10 +203,6 @@ branch_artifact_dir_exists() {
 
 # Resolve the artifact root for a branch.
 resolve_branch_artifact_root() {
-  local branch="$1"
-  local branch_path=""
-
-  branch_path="$(branch_to_slug "$branch")"
   printf '.aicandoit\n'
 }
 
@@ -483,7 +515,7 @@ resolve_target_branch_name() {
     return 0
   fi
 
-  current_branch_path="$(branch_to_slug "$current_branch")"
+  current_branch_path="$(resolve_branch_artifact_slug "$current_branch" ".aicandoit")"
   if branch_artifact_dir_exists ".aicandoit" "$current_branch_path"; then
     USE_CURRENT_BRANCH=true
     BRANCH="$current_branch"
@@ -909,8 +941,8 @@ prepare_branch_checkout() {
 
 # Resolve branch-scoped artifact paths after branch setup.
 resolve_artifact_paths() {
-  BRANCH_PATH="$(branch_to_slug "$BRANCH")"
   ARTIFACT_ROOT="$(resolve_branch_artifact_root "$BRANCH")"
+  BRANCH_PATH="$(resolve_branch_artifact_slug "$BRANCH" "$ARTIFACT_ROOT")"
   PLAN_PATH="${ARTIFACT_ROOT}/branches/${BRANCH_PATH}/plan.md"
   PLAN_FILE="${ARTIFACT_ROOT}/branches/${BRANCH_PATH}/plan-review.md"
   CODE_FILE="${ARTIFACT_ROOT}/branches/${BRANCH_PATH}/code-review.md"
