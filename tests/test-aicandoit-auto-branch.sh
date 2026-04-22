@@ -52,6 +52,7 @@ git -C "$FIXTURE_REPO" add README.md docs/guide.txt bin/blob.bin docs/large.txt
 git -C "$FIXTURE_REPO" commit -qm 'chore: initialize fixture'
 
 export AICANDOIT_ISSUE_TITLE_24='Add source aware auto branch mode'
+export AICANDOIT_ISSUE_TITLE_33='Auto branch overrides artifacts'
 
 issue_branch="$(cd "$FIXTURE_REPO" && resolve_auto_branch_name 'fix gh issue 24' "$FIXTURE_REPO")"
 assert_equals 'auto/issue-24-add-source-aware-auto-branch-mode' "$issue_branch" 'issue branch'
@@ -108,5 +109,20 @@ assert_equals 'auto/readme-md-ai-can-do-it' "$end_to_end_branch" 'end to end bra
 assert_valid_branch_ref "$end_to_end_branch" 'end to end branch'
 [[ -f "${FIXTURE_REPO}/.aicandoit/branches/auto_readme-md-ai-can-do-it/plan.md" ]] || fail 'end to end plan missing'
 [[ -f "${FIXTURE_REPO}/.aicandoit/branches/auto_readme-md-ai-can-do-it/plan-review.md" ]] || fail 'end to end plan review missing'
+
+git -C "$FIXTURE_REPO" checkout -q -B 'feature/current-artifacts' main
+mkdir -p "${FIXTURE_REPO}/.aicandoit/branches/feature_current-artifacts"
+printf "Template target: \`.aicandoit/branches/{branch-slug}/plan.md\`\n" > "${FIXTURE_REPO}/.aicandoit/branches/feature_current-artifacts/plan.md"
+
+(
+  cd "$FIXTURE_REPO"
+  PATH="${STUB_DIR}:$PATH" "$REPO_ROOT/bin/aicandoit" --coder codex --reviewer claude --auto-branch 'fix gh issue 33' --mode plan
+)
+
+issue_priority_branch="$(git -C "$FIXTURE_REPO" branch --show-current)"
+assert_equals 'auto/issue-33-auto-branch-overrides-artifacts' "$issue_priority_branch" 'issue auto branch priority with current branch artifacts'
+assert_valid_branch_ref "$issue_priority_branch" 'issue auto branch priority with current branch artifacts'
+[[ -f "${FIXTURE_REPO}/.aicandoit/branches/auto_issue-33-auto-branch-overrides-artifacts/plan.md" ]] || fail 'issue priority plan missing'
+[[ -f "${FIXTURE_REPO}/.aicandoit/branches/auto_issue-33-auto-branch-overrides-artifacts/plan-review.md" ]] || fail 'issue priority plan review missing'
 
 echo 'auto-branch helper tests passed'
