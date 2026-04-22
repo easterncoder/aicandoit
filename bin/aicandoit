@@ -99,11 +99,38 @@ build_cursor_args() {
   cursor_args=(--trust --print --model "${model:-$_CURSOR_DEFAULT}")
 }
 
+# Hash a branch name using deterministic tool fallback order.
+hash_branch_name() {
+  local branch="$1"
+  local digest=""
+
+  if command -v sha256sum >/dev/null 2>&1 && digest="$(printf '%s' "$branch" | sha256sum 2>/dev/null | awk '{print $1}')" && [[ -n "$digest" ]]; then
+    :
+  elif command -v shasum >/dev/null 2>&1 && digest="$(printf '%s' "$branch" | shasum -a 256 2>/dev/null | awk '{print $1}')" && [[ -n "$digest" ]]; then
+    :
+  else
+    digest="$(printf '%s' "$branch" | git hash-object --stdin)"
+  fi
+
+  printf '%s\n' "$digest"
+}
+
 # Resolve the branch slug used by branch-scoped artifact paths.
 branch_to_slug() {
   local branch="$1"
+  local base=""
+  local digest=""
+  local suffix=""
 
-  printf '%s\n' "${branch//\//_}"
+  base="$(printf '%s' "$branch" | tr '/' '_' | sed -E 's/[^A-Za-z0-9._-]+/-/g; s/^-+//; s/-+$//; s/-{2,}/-/g')"
+  if [[ -z "$base" ]]; then
+    base="branch"
+  fi
+
+  digest="$(hash_branch_name "$branch")"
+  suffix="$(printf '%s' "$digest" | cut -c1-10)"
+
+  printf '%s-%s\n' "$base" "$suffix"
 }
 
 # Resolve the current branch name without requiring an existing commit.

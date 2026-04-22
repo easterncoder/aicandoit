@@ -66,8 +66,8 @@ STUB_DIR="${TMP_DIR}/stubs"
 mkdir -p "$STUB_DIR"
 
 printf '%s\n' '#!/usr/bin/env bash' 'exit 0' > "${STUB_DIR}/gh"
-printf '%s\n' '#!/usr/bin/env bash' 'branch="$(git branch --show-current)"' 'slug="${branch//\//_}"' 'mkdir -p ".aicandoit/branches/${slug}"' 'printf "Template target: `.aicandoit/branches/{branch-slug}/plan.md`\n" > ".aicandoit/branches/${slug}/plan.md"' 'exit 0' > "${STUB_DIR}/codex"
-printf '%s\n' '#!/usr/bin/env bash' 'branch="$(git branch --show-current)"' 'slug="${branch//\//_}"' 'mkdir -p ".aicandoit/branches/${slug}"' 'printf "ALL GOOD\n" > ".aicandoit/branches/${slug}/plan-review.md"' 'printf "ALL GOOD\n" > ".aicandoit/branches/${slug}/code-review.md"' 'exit 0' > "${STUB_DIR}/claude"
+printf '%s\n' '#!/usr/bin/env bash' "source \"${REPO_ROOT}/bin/aicandoit\"" 'branch="$(git branch --show-current)"' 'slug="$(branch_to_slug "$branch")"' 'mkdir -p ".aicandoit/branches/${slug}"' 'printf "Template target: `.aicandoit/branches/{branch-slug}/plan.md`\n" > ".aicandoit/branches/${slug}/plan.md"' 'exit 0' > "${STUB_DIR}/codex"
+printf '%s\n' '#!/usr/bin/env bash' "source \"${REPO_ROOT}/bin/aicandoit\"" 'branch="$(git branch --show-current)"' 'slug="$(branch_to_slug "$branch")"' 'mkdir -p ".aicandoit/branches/${slug}"' 'printf "ALL GOOD\n" > ".aicandoit/branches/${slug}/plan-review.md"' 'printf "ALL GOOD\n" > ".aicandoit/branches/${slug}/code-review.md"' 'exit 0' > "${STUB_DIR}/claude"
 chmod +x "${STUB_DIR}/gh" "${STUB_DIR}/codex" "${STUB_DIR}/claude"
 
 (
@@ -77,7 +77,7 @@ chmod +x "${STUB_DIR}/gh" "${STUB_DIR}/codex" "${STUB_DIR}/claude"
 
 end_to_end_branch="$(git -C "$FIXTURE_REPO" branch --show-current)"
 assert_equals 'auto/readme-md-ai-can-do-it' "$end_to_end_branch" 'end to end branch'
-[[ -f "${FIXTURE_REPO}/.aicandoit/branches/auto_readme-md-ai-can-do-it/plan.md" ]] || fail 'end to end plan missing'
-[[ -f "${FIXTURE_REPO}/.aicandoit/branches/auto_readme-md-ai-can-do-it/plan-review.md" ]] || fail 'end to end plan review missing'
+[[ -f "${FIXTURE_REPO}/.aicandoit/branches/auto_readme-md-ai-can-do-it-9615b9c8a9/plan.md" ]] || fail 'end to end plan missing'
+[[ -f "${FIXTURE_REPO}/.aicandoit/branches/auto_readme-md-ai-can-do-it-9615b9c8a9/plan-review.md" ]] || fail 'end to end plan review missing'
 
 echo 'auto-branch helper tests passed'
