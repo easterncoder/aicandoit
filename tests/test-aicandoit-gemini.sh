@@ -119,6 +119,79 @@ assert_validate_success "gemini/model-a" "" "gemini/model-b" "accept gemini revi
 assert_validate_failure "gemini/model-a" "" "gemini/model-a" "coder and reviewer must differ" "reject same coder and reviewer gemini model"
 assert_validate_failure "codex" "gemini/model-a" "gemini/model-a" "planner and reviewer must differ" "reject same planner and reviewer gemini model"
 
+assert_mode_prerequisite_success() {
+  local mode="$1"
+  local plan_exists="$2"
+  local code_exists="$3"
+  local label="$4"
+  local tmp_dir=""
+
+  tmp_dir="$(mktemp -d)"
+  if [[ "$plan_exists" == "yes" ]]; then
+    touch "${tmp_dir}/plan.md"
+  fi
+  if [[ "$code_exists" == "yes" ]]; then
+    touch "${tmp_dir}/code-review.md"
+  fi
+
+  if ! (
+    set -euo pipefail
+    MODE="$mode"
+    PLAN_PATH="${tmp_dir}/plan.md"
+    CODE_FILE="${tmp_dir}/code-review.md"
+    validate_mode_prerequisites
+  ); then
+    rm -rf "$tmp_dir"
+    fail "$label should pass validate_mode_prerequisites"
+  fi
+
+  rm -rf "$tmp_dir"
+}
+
+assert_mode_prerequisite_failure() {
+  local mode="$1"
+  local plan_exists="$2"
+  local code_exists="$3"
+  local expected_fragment="$4"
+  local label="$5"
+  local tmp_dir=""
+  local output=""
+  local status=0
+
+  tmp_dir="$(mktemp -d)"
+  if [[ "$plan_exists" == "yes" ]]; then
+    touch "${tmp_dir}/plan.md"
+  fi
+  if [[ "$code_exists" == "yes" ]]; then
+    touch "${tmp_dir}/code-review.md"
+  fi
+
+  set +e
+  output="$(
+    (
+      set -euo pipefail
+      MODE="$mode"
+      PLAN_PATH="${tmp_dir}/plan.md"
+      CODE_FILE="${tmp_dir}/code-review.md"
+      validate_mode_prerequisites
+    ) 2>&1
+  )"
+  status=$?
+  set -e
+
+  rm -rf "$tmp_dir"
+
+  if [[ "$status" -eq 0 ]]; then
+    fail "$label should fail validate_mode_prerequisites"
+  fi
+  assert_contains "$output" "$expected_fragment" "$label"
+}
+
+assert_mode_prerequisite_failure "plan-review" "no" "no" "requires an existing plan" "plan-review requires plan artifact"
+assert_mode_prerequisite_failure "code" "no" "no" "requires an approved plan" "code requires plan artifact"
+assert_mode_prerequisite_success "code-review" "no" "no" "code-review allows missing review artifact"
+assert_mode_prerequisite_success "code-review" "yes" "yes" "code-review works with existing review artifact"
+
 CODER_MODEL="gemini-model"
 PLANNER_MODEL="gemini-model"
 REVIEWER_MODEL="gemini-model"
@@ -164,8 +237,40 @@ assert_last_command "run_code_review gemini" gemini --resume latest --prompt "/c
 run_code_review_loop
 assert_last_command "run_code_review_loop gemini" gemini --resume latest --prompt "/code-review"
 
+BOOTSTRAP_TMP_DIR="$(mktemp -d)"
+BOOTSTRAP_CALLS=0
+REVIEW_LOOP_CALLS=0
+REVIEW_LOOP_ARGS=()
+run_code_review() {
+  BOOTSTRAP_CALLS=$((BOOTSTRAP_CALLS + 1))
+}
+review_loop() {
+  REVIEW_LOOP_CALLS=$((REVIEW_LOOP_CALLS + 1))
+  REVIEW_LOOP_ARGS=("$@")
+}
+
+MODE="code-review"
+CODE_FILE="${BOOTSTRAP_TMP_DIR}/code-review.md"
+
+run_selected_mode >/dev/null
+assert_equals "1" "$BOOTSTRAP_CALLS" "code-review missing artifact triggers bootstrap review"
+assert_equals "1" "$REVIEW_LOOP_CALLS" "code-review missing artifact still enters review loop"
+assert_equals "Code" "${REVIEW_LOOP_ARGS[0]}" "code-review loop label"
+assert_equals "$CODE_FILE" "${REVIEW_LOOP_ARGS[1]}" "code-review loop artifact path"
+assert_equals "run_code_fix" "${REVIEW_LOOP_ARGS[2]}" "code-review loop fix callback"
+assert_equals "run_code_review_loop" "${REVIEW_LOOP_ARGS[3]}" "code-review loop review callback"
+assert_equals "Coder" "${REVIEW_LOOP_ARGS[4]}" "code-review loop agent label"
+
+touch "$CODE_FILE"
+BOOTSTRAP_CALLS=0
+REVIEW_LOOP_CALLS=0
+REVIEW_LOOP_ARGS=()
+run_selected_mode >/dev/null
+assert_equals "0" "$BOOTSTRAP_CALLS" "code-review existing artifact skips bootstrap review"
+assert_equals "1" "$REVIEW_LOOP_CALLS" "code-review existing artifact still enters review loop"
+
 TMP_DIR="$(mktemp -d)"
-trap 'rm -rf "$TMP_DIR"' EXIT
+trap 'rm -rf "$TMP_DIR" "$BOOTSTRAP_TMP_DIR"' EXIT
 STUB_DIR="${TMP_DIR}/stubs"
 mkdir -p "$STUB_DIR"
 

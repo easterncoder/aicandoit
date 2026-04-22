@@ -899,10 +899,6 @@ validate_mode_prerequisites() {
     echo "error: --mode code requires an approved plan for this branch; run --mode plan first" >&2
     exit 1
   fi
-  if [[ "$MODE" == "code-review" && ! -f "$CODE_FILE" ]]; then
-    echo "error: --mode code-review requires an existing code review; run --mode code first" >&2
-    exit 1
-  fi
 }
 
 # Run the selected workflow mode.
@@ -939,6 +935,11 @@ run_selected_mode() {
       return 0
       ;;
     code-review)
+      if [[ ! -f "$CODE_FILE" ]]; then
+        echo
+        echo "Reviewer is reviewing the code..."
+        run_code_review
+      fi
       review_loop "Code" "$CODE_FILE" run_code_fix run_code_review_loop "Coder"
       echo "AI Can Do It finished the workflow."
       return 0
