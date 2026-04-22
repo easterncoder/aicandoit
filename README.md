@@ -60,9 +60,6 @@ With `--worktree`, the launcher uses `<repo-root>/.aicandoit/branches/<branch-sl
 3. Raw prompt text. This is the fallback when no issue or valid file source resolves.
 
 For file-based resolution, the launcher reads only the first `AUTO_BRANCH_FILE_SNIPPET_BYTES` bytes and uses the first non-empty line together with the basename to keep the slug stable and bounded.
-All auto-derived branch names pass through a single ref-safety gate and are validated with `git check-ref-format --branch` before any checkout or creation step.
-If normalization still cannot produce a valid branch ref, the launcher fails with a clear error instead of running `git checkout -b` with an unsafe name.
-Example: `--auto-branch "fix issue: login / signup"` resolves to a safe branch such as `auto/fix-issue-login-signup`.
 
 ## Requirements
 

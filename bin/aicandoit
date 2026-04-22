@@ -177,39 +177,6 @@ sanitize_branch_component() {
   printf '%s\n' "$sanitized"
 }
 
-# Normalize an auto branch candidate into a Git-safe branch form.
-normalize_auto_branch_candidate() {
-  local candidate="$1"
-  local prefix=""
-  local remainder=""
-
-  prefix="$AUTO_BRANCH_PREFIX"
-  remainder="$candidate"
-  if [[ "$candidate" == */* ]]; then
-    prefix="${candidate%%/*}"
-    remainder="${candidate#*/}"
-  fi
-
-  prefix="$(sanitize_branch_component "$prefix" 20)"
-  remainder="$(sanitize_branch_component "$remainder" "$AUTO_BRANCH_NAME_MAX")"
-
-  printf '%s/%s\n' "$prefix" "$remainder"
-}
-
-# Enforce one ref-safety gate for all auto-derived branch names.
-ensure_safe_auto_branch_name() {
-  local candidate="$1"
-  local normalized=""
-
-  normalized="$(normalize_auto_branch_candidate "$candidate")"
-  if ! git check-ref-format --branch "$normalized" >/dev/null 2>&1; then
-    echo "error: auto branch normalization could not produce a valid branch name from '$candidate'" >&2
-    exit 1
-  fi
-
-  printf '%s\n' "$normalized"
-}
-
 # Append a deterministic numeric suffix when a local branch already exists.
 resolve_unique_local_branch_name() {
   local candidate="$1"
@@ -440,7 +407,6 @@ resolve_auto_branch_name() {
   if [[ -n "$issue_number" ]]; then
     issue_title="$(fetch_issue_title "$issue_number" 2>/dev/null || true)"
     candidate="$(build_issue_branch_name "$issue_number" "$issue_title")"
-    candidate="$(ensure_safe_auto_branch_name "$candidate")"
     resolve_unique_local_branch_name "$candidate"
     return 0
   fi
@@ -449,13 +415,11 @@ resolve_auto_branch_name() {
   if [[ -n "$file_path" ]] && file_within_auto_branch_limit "$file_path" && is_probably_text_file "$file_path"; then
     snippet="$(read_auto_branch_file_snippet "$file_path")"
     candidate="$(build_file_branch_name "$file_path" "$snippet")"
-    candidate="$(ensure_safe_auto_branch_name "$candidate")"
     resolve_unique_local_branch_name "$candidate"
     return 0
   fi
 
   candidate="$(build_prompt_branch_name "$prompt")"
-  candidate="$(ensure_safe_auto_branch_name "$candidate")"
   resolve_unique_local_branch_name "$candidate"
 }
 
