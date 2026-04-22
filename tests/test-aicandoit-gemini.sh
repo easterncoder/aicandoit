@@ -200,6 +200,204 @@ assert_mode_prerequisite_failure "code" "no" "no" "requires an approved plan" "c
 assert_mode_prerequisite_success "code-review" "no" "no" "code-review allows missing review artifact"
 assert_mode_prerequisite_success "code-review" "yes" "yes" "code-review works with existing review artifact"
 
+if ! (
+  set -euo pipefail
+  git() {
+    if [[ "$1" == "-C" && "$3" == "status" && "$4" == "--porcelain" ]]; then
+      printf ' M README.md\n'
+      return 0
+    fi
+    return 1
+  }
+  source_checkout_has_uncommitted_changes "/repo"
+); then
+  fail "dirty helper should return success when status output is non-empty"
+fi
+
+if (
+  set -euo pipefail
+  git() {
+    if [[ "$1" == "-C" && "$3" == "status" && "$4" == "--porcelain" ]]; then
+      return 0
+    fi
+    return 1
+  }
+  source_checkout_has_uncommitted_changes "/repo"
+); then
+  fail "dirty helper should return failure when status output is empty"
+fi
+
+if ! (
+  set -euo pipefail
+  resolve_current_branch_name() {
+    printf 'feature\n'
+  }
+  source_checkout_has_uncommitted_changes() {
+    return 0
+  }
+  git() {
+    return 1
+  }
+  guard_dirty_non_worktree_branch_switch "/repo" "feature"
+); then
+  fail "dirty guard should allow no-op checkout on current branch"
+fi
+
+set +e
+dirty_switch_output="$(
+  (
+    set -euo pipefail
+    resolve_current_branch_name() {
+      printf 'main\n'
+    }
+    source_checkout_has_uncommitted_changes() {
+      return 0
+    }
+    git() {
+      if [[ "$1" == "-C" && "$3" == "show-ref" ]]; then
+        return 0
+      fi
+      return 1
+    }
+    guard_dirty_non_worktree_branch_switch "/repo" "feature"
+  ) 2>&1
+)"
+dirty_switch_status=$?
+set -e
+assert_equals "1" "$dirty_switch_status" "dirty guard blocks switching to existing branch"
+assert_contains "$dirty_switch_output" "cannot switch from 'main' to 'feature'" "dirty guard existing branch message"
+
+set +e
+dirty_create_output="$(
+  (
+    set -euo pipefail
+    resolve_current_branch_name() {
+      printf 'main\n'
+    }
+    source_checkout_has_uncommitted_changes() {
+      return 0
+    }
+    git() {
+      if [[ "$1" == "-C" && "$3" == "show-ref" ]]; then
+        return 1
+      fi
+      return 1
+    }
+    guard_dirty_non_worktree_branch_switch "/repo" "feature"
+  ) 2>&1
+)"
+dirty_create_status=$?
+set -e
+assert_equals "1" "$dirty_create_status" "dirty guard blocks creating and switching branch"
+assert_contains "$dirty_create_output" "cannot create and switch to 'feature'" "dirty guard create branch message"
+
+if ! (
+  set -euo pipefail
+  USE_WORKTREE=false
+  USE_CURRENT_BRANCH=true
+  AUTO_BRANCH=false
+  BRANCH="feature"
+  guard_called=0
+  resolve_target_branch_name() {
+    :
+  }
+  guard_dirty_non_worktree_branch_switch() {
+    guard_called=1
+  }
+  output="$(prepare_branch_checkout 2>&1)"
+  [[ "$guard_called" -eq 0 ]]
+  [[ "$output" == *"Using current branch: feature"* ]]
+); then
+  fail "prepare_branch_checkout should skip guard in explicit current branch mode"
+fi
+
+if ! (
+  set -euo pipefail
+  USE_WORKTREE=false
+  USE_CURRENT_BRANCH=false
+  AUTO_BRANCH=false
+  BRANCH=""
+  guard_called=0
+  resolve_target_branch_name() {
+    BRANCH="feature"
+    USE_CURRENT_BRANCH=true
+  }
+  guard_dirty_non_worktree_branch_switch() {
+    guard_called=1
+  }
+  output="$(prepare_branch_checkout 2>&1)"
+  [[ "$guard_called" -eq 0 ]]
+  [[ "$output" == *"Using current branch: feature"* ]]
+); then
+  fail "prepare_branch_checkout should skip guard in inferred current branch mode"
+fi
+
+if ! (
+  set -euo pipefail
+  USE_WORKTREE=true
+  USE_CURRENT_BRANCH=false
+  AUTO_BRANCH=false
+  BRANCH="feature"
+  guard_called=0
+  resolve_target_branch_name() {
+    :
+  }
+  resolve_repo_root() {
+    printf '/repo\n'
+  }
+  resolve_default_start_ref() {
+    printf 'origin/main\n'
+  }
+  resolve_worktree_path() {
+    printf '/repo/.aicandoit/branches/feature/worktree\n'
+  }
+  ensure_worktree_for_branch() {
+    return 0
+  }
+  cd() {
+    return 0
+  }
+  guard_dirty_non_worktree_branch_switch() {
+    guard_called=1
+  }
+  output="$(prepare_branch_checkout 2>&1)"
+  [[ "$guard_called" -eq 0 ]]
+  [[ "$output" == *"Using worktree for branch: feature"* ]]
+); then
+  fail "prepare_branch_checkout should not run non-worktree dirty guard in worktree mode"
+fi
+
+if ! (
+  set -euo pipefail
+  USE_WORKTREE=false
+  USE_CURRENT_BRANCH=false
+  AUTO_BRANCH=false
+  BRANCH="feature"
+  guard_called=0
+  checkout_called=0
+  resolve_target_branch_name() {
+    :
+  }
+  guard_dirty_non_worktree_branch_switch() {
+    guard_called=$((guard_called + 1))
+  }
+  git() {
+    if [[ "$1" == "show-ref" ]]; then
+      return 0
+    fi
+    if [[ "$1" == "checkout" && "$2" == "feature" ]]; then
+      checkout_called=1
+      return 0
+    fi
+    return 1
+  }
+  prepare_branch_checkout >/dev/null
+  [[ "$guard_called" -eq 1 ]]
+  [[ "$checkout_called" -eq 1 ]]
+); then
+  fail "prepare_branch_checkout should invoke guard before branch switching"
+fi
+
 CODER_MODEL="gemini-model"
 PLANNER_MODEL="gemini-model"
 REVIEWER_MODEL="gemini-model"

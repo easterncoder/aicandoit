@@ -193,6 +193,43 @@ resolve_current_branch_name() {
   git "${git_dir_args[@]}" rev-parse --abbrev-ref HEAD
 }
 
+# Check whether the source checkout has uncommitted changes.
+source_checkout_has_uncommitted_changes() {
+  local source_checkout_path="$1"
+
+  [[ -n "$(git -C "$source_checkout_path" status --porcelain)" ]]
+}
+
+# Guard non-worktree branch switching when the source checkout is dirty.
+guard_dirty_non_worktree_branch_switch() {
+  local source_checkout_path="$1"
+  local target_branch="$2"
+  local current_branch=""
+  local branch_exists=false
+
+  current_branch="$(resolve_current_branch_name "$source_checkout_path")"
+
+  if [[ "$current_branch" == "$target_branch" ]]; then
+    return 0
+  fi
+
+  if ! source_checkout_has_uncommitted_changes "$source_checkout_path"; then
+    return 0
+  fi
+
+  if git -C "$source_checkout_path" show-ref --verify --quiet "refs/heads/$target_branch"; then
+    branch_exists=true
+  fi
+
+  if [[ "$branch_exists" == true ]]; then
+    echo "error: source checkout has uncommitted changes; cannot switch from '$current_branch' to '$target_branch' without --worktree" >&2
+  else
+    echo "error: source checkout has uncommitted changes; cannot create and switch to '$target_branch' without --worktree" >&2
+  fi
+  echo "hint: commit or stash changes, use --current-branch, or run with --worktree" >&2
+  exit 1
+}
+
 # Check whether a branch artifact directory exists under the given root.
 branch_artifact_dir_exists() {
   local artifact_root="$1"
@@ -1073,6 +1110,8 @@ prepare_branch_checkout() {
   if [[ "$AUTO_BRANCH" == true ]]; then
     echo "Using auto branch: $BRANCH"
   fi
+
+  guard_dirty_non_worktree_branch_switch "$(pwd -P)" "$BRANCH"
 
   if git show-ref --verify --quiet "refs/heads/$BRANCH"; then
     echo "Switching to branch: $BRANCH"

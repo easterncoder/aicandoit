@@ -50,6 +50,7 @@ The `--verbose` flag shows CLI tool output and merges stderr into stdout so all 
 If `--branch`, `--current-branch`, and `--auto-branch` are all omitted, the launcher checks for `.aicandoit/branches/<current-branch-slug>`; if it does not exist, it fails with `error: pass --branch <name>, --current-branch, or --auto-branch`.
 `--auto-branch` is mutually exclusive with `--branch` and `--current-branch`.
 With `--worktree`, the launcher uses `<repo-root>/.aicandoit/branches/<branch-slug>/worktree`. `--worktree` does not support `--current-branch`.
+In non-worktree mode, switching to a different branch or creating a new branch requires a clean source checkout. If the resolved target branch is already checked out, the launcher continues without blocking.
 
 ## Auto Branch Rules
 
