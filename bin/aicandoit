@@ -540,93 +540,152 @@ run_cli() {
   fi
 }
 
+# Run a role/action command through the selected CLI.
+run_role_action() {
+  local role="$1"
+  local action="$2"
+  local continue_mode="$3"
+  local cli=""
+  local model_args_name=""
+  local cursor_args_name=""
+  local prompt=""
+  local codex_prompt=""
+
+  case "$role" in
+    planner)
+      cli="$PLANNER_CLI"
+      cursor_args_name="PLANNER_CURSOR_ARGS"
+      case "$cli" in
+        claude) model_args_name="PLANNER_CLAUDE_MODEL" ;;
+        codex) model_args_name="PLANNER_CODEX_MODEL" ;;
+        gemini) model_args_name="PLANNER_GEMINI_MODEL" ;;
+      esac
+      ;;
+    coder)
+      cli="$CODER_CLI"
+      cursor_args_name="CODER_CURSOR_ARGS"
+      case "$cli" in
+        claude) model_args_name="CODER_CLAUDE_MODEL" ;;
+        codex) model_args_name="CODER_CODEX_MODEL" ;;
+        gemini) model_args_name="CODER_GEMINI_MODEL" ;;
+      esac
+      ;;
+    reviewer)
+      cli="$REVIEWER_CLI"
+      cursor_args_name="REVIEWER_CURSOR_ARGS"
+      case "$cli" in
+        claude) model_args_name="REVIEWER_CLAUDE_MODEL" ;;
+        codex) model_args_name="REVIEWER_CODEX_MODEL" ;;
+        gemini) model_args_name="REVIEWER_GEMINI_MODEL" ;;
+      esac
+      ;;
+  esac
+
+  case "$action" in
+    plan)
+      prompt="/plan-it $PROMPT"
+      codex_prompt="\$plan-it $PROMPT"
+      ;;
+    plan-update)
+      prompt="/plan-update"
+      codex_prompt='$plan-update'
+      ;;
+    code)
+      prompt="/code-it"
+      codex_prompt='$code-it'
+      ;;
+    code-fix)
+      prompt="/code-fix"
+      codex_prompt='$code-fix'
+      ;;
+    plan-review)
+      prompt="/plan-review"
+      codex_prompt='$plan-review'
+      ;;
+    code-review)
+      prompt="/code-review"
+      codex_prompt='$code-review'
+      ;;
+  esac
+
+  case "$cli" in
+    claude)
+      local -n claude_model_args="$model_args_name"
+      if [[ "$continue_mode" == true ]]; then
+        run_cli claude "${claude_model_args[@]}" -c -p "$prompt"
+      else
+        run_cli claude "${claude_model_args[@]}" -p "$prompt"
+      fi
+      ;;
+    codex)
+      local -n codex_model_args="$model_args_name"
+      if [[ "$continue_mode" == true ]]; then
+        run_cli codex $CODEX_BASE_ARGS "${codex_model_args[@]}" exec resume --last "$codex_prompt"
+      else
+        run_cli codex $CODEX_BASE_ARGS "${codex_model_args[@]}" exec "$codex_prompt"
+      fi
+      ;;
+    cursor)
+      local -n cursor_args="$cursor_args_name"
+      if [[ "$continue_mode" == true ]]; then
+        run_cli cursor-agent "${cursor_args[@]}" --continue "$prompt"
+      else
+        run_cli cursor-agent "${cursor_args[@]}" "$prompt"
+      fi
+      ;;
+    gemini)
+      local -n gemini_model_args="$model_args_name"
+      if [[ "$continue_mode" == true ]]; then
+        run_cli gemini "${gemini_model_args[@]}" --resume latest --prompt "$prompt"
+      else
+        run_cli gemini "${gemini_model_args[@]}" --prompt "$prompt"
+      fi
+      ;;
+  esac
+}
+
 # Run the initial plan step using the planner role.
 run_plan() {
-  case "$PLANNER_CLI" in
-    claude) run_cli claude "${PLANNER_CLAUDE_MODEL[@]}" -p "/plan-it $PROMPT" ;;
-    codex)  run_cli codex $CODEX_BASE_ARGS "${PLANNER_CODEX_MODEL[@]}" exec "\$plan-it $PROMPT" ;;
-    cursor) run_cli cursor-agent "${PLANNER_CURSOR_ARGS[@]}" "/plan-it $PROMPT" ;;
-    gemini) run_cli gemini "${PLANNER_GEMINI_MODEL[@]}" --prompt "/plan-it $PROMPT" ;;
-  esac
+  run_role_action planner plan false
 }
 
 # Update the plan using the planner role.
 run_plan_update() {
-  case "$PLANNER_CLI" in
-    claude) run_cli claude "${PLANNER_CLAUDE_MODEL[@]}" -c -p "/plan-update" ;;
-    codex)  run_cli codex $CODEX_BASE_ARGS "${PLANNER_CODEX_MODEL[@]}" exec resume --last '$plan-update' ;;
-    cursor) run_cli cursor-agent "${PLANNER_CURSOR_ARGS[@]}" --continue '/plan-update' ;;
-    gemini) run_cli gemini "${PLANNER_GEMINI_MODEL[@]}" --resume latest --prompt "/plan-update" ;;
-  esac
+  run_role_action planner plan-update true
 }
 
 # Run the code step using the coder role.
 run_code() {
   if [[ "$PLANNER_MATCHES_CODER" == true ]]; then
-    case "$CODER_CLI" in
-      claude) run_cli claude "${CODER_CLAUDE_MODEL[@]}" -c -p "/code-it" ;;
-      codex)  run_cli codex $CODEX_BASE_ARGS "${CODER_CODEX_MODEL[@]}" exec resume --last '$code-it' ;;
-      cursor) run_cli cursor-agent "${CODER_CURSOR_ARGS[@]}" --continue '/code-it' ;;
-      gemini) run_cli gemini "${CODER_GEMINI_MODEL[@]}" --resume latest --prompt "/code-it" ;;
-    esac
+    run_role_action coder code true
   else
-    case "$CODER_CLI" in
-      claude) run_cli claude "${CODER_CLAUDE_MODEL[@]}" -p "/code-it" ;;
-      codex)  run_cli codex $CODEX_BASE_ARGS "${CODER_CODEX_MODEL[@]}" exec '$code-it' ;;
-      cursor) run_cli cursor-agent "${CODER_CURSOR_ARGS[@]}" '/code-it' ;;
-      gemini) run_cli gemini "${CODER_GEMINI_MODEL[@]}" --prompt "/code-it" ;;
-    esac
+    run_role_action coder code false
   fi
 }
 
 # Run the code fix step using the coder role.
 run_code_fix() {
-  case "$CODER_CLI" in
-    claude) run_cli claude "${CODER_CLAUDE_MODEL[@]}" -c -p "/code-fix" ;;
-    codex)  run_cli codex $CODEX_BASE_ARGS "${CODER_CODEX_MODEL[@]}" exec resume --last '$code-fix' ;;
-    cursor) run_cli cursor-agent "${CODER_CURSOR_ARGS[@]}" --continue '/code-fix' ;;
-    gemini) run_cli gemini "${CODER_GEMINI_MODEL[@]}" --resume latest --prompt "/code-fix" ;;
-  esac
+  run_role_action coder code-fix true
 }
 
 # Run the initial plan review using the reviewer role.
 run_plan_review() {
-  case "$REVIEWER_CLI" in
-    claude) run_cli claude "${REVIEWER_CLAUDE_MODEL[@]}" -p "/plan-review" ;;
-    codex)  run_cli codex $CODEX_BASE_ARGS "${REVIEWER_CODEX_MODEL[@]}" exec '$plan-review' ;;
-    cursor) run_cli cursor-agent "${REVIEWER_CURSOR_ARGS[@]}" '/plan-review' ;;
-    gemini) run_cli gemini "${REVIEWER_GEMINI_MODEL[@]}" --prompt "/plan-review" ;;
-  esac
+  run_role_action reviewer plan-review false
 }
 
 # Re-run plan review in the review loop using the reviewer role.
 run_plan_review_loop() {
-  case "$REVIEWER_CLI" in
-    claude) run_cli claude "${REVIEWER_CLAUDE_MODEL[@]}" -c -p "/plan-review" ;;
-    codex)  run_cli codex $CODEX_BASE_ARGS "${REVIEWER_CODEX_MODEL[@]}" exec resume --last '$plan-review' ;;
-    cursor) run_cli cursor-agent "${REVIEWER_CURSOR_ARGS[@]}" --continue '/plan-review' ;;
-    gemini) run_cli gemini "${REVIEWER_GEMINI_MODEL[@]}" --resume latest --prompt "/plan-review" ;;
-  esac
+  run_role_action reviewer plan-review true
 }
 
 # Run the initial code review using the reviewer role.
 run_code_review() {
-  case "$REVIEWER_CLI" in
-    claude) run_cli claude "${REVIEWER_CLAUDE_MODEL[@]}" -c -p "/code-review" ;;
-    codex)  run_cli codex $CODEX_BASE_ARGS "${REVIEWER_CODEX_MODEL[@]}" exec resume --last '$code-review' ;;
-    cursor) run_cli cursor-agent "${REVIEWER_CURSOR_ARGS[@]}" --continue '/code-review' ;;
-    gemini) run_cli gemini "${REVIEWER_GEMINI_MODEL[@]}" --resume latest --prompt "/code-review" ;;
-  esac
+  run_role_action reviewer code-review true
 }
 
 # Re-run code review in the review loop using the reviewer role.
 run_code_review_loop() {
-  case "$REVIEWER_CLI" in
-    claude) run_cli claude "${REVIEWER_CLAUDE_MODEL[@]}" -c -p "/code-review" ;;
-    codex)  run_cli codex $CODEX_BASE_ARGS "${REVIEWER_CODEX_MODEL[@]}" exec resume --last '$code-review' ;;
-    cursor) run_cli cursor-agent "${REVIEWER_CURSOR_ARGS[@]}" --continue '/code-review' ;;
-    gemini) run_cli gemini "${REVIEWER_GEMINI_MODEL[@]}" --resume latest --prompt "/code-review" ;;
-  esac
+  run_role_action reviewer code-review true
 }
 
 # Run the review loop until the review file is marked ALL GOOD.
