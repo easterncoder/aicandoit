@@ -33,6 +33,14 @@ LAST_CMD=()
 run_cli() {
   LAST_CMD=("$@")
 }
+build_log_file_path() {
+  LOG_FILE_PATH="/tmp/test-aicandoit-dispatch.log"
+}
+run_cli_logged() {
+  local _log_file="$1"
+  shift
+  run_cli "$@"
+}
 
 MODEL="dispatch-model"
 PROMPT="implement feature"

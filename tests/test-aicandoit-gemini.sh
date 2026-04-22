@@ -112,6 +112,14 @@ LAST_CMD=()
 run_cli() {
   LAST_CMD=("$@")
 }
+build_log_file_path() {
+  LOG_FILE_PATH="/tmp/test-aicandoit-gemini.log"
+}
+run_cli_logged() {
+  local _log_file="$1"
+  shift
+  run_cli "$@"
+}
 
 assert_validate_success "gemini" "" "claude" "accept coder gemini reviewer claude"
 assert_validate_success "codex" "gemini" "cursor" "accept planner gemini"

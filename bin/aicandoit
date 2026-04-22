@@ -531,12 +531,73 @@ valid_cli() {
   [[ "$1" == "claude" || "$1" == "codex" || "$1" == "cursor" || "$1" == "gemini" ]]
 }
 
-# Run a CLI command honoring the VERBOSE flag.
+# Ensure branch-scoped logging paths are initialized before command execution.
+ensure_logging_context() {
+  if [[ "${LOG_CONTEXT_READY:-false}" == true ]]; then
+    return 0
+  fi
+
+  local branch_name="${BRANCH:-}"
+
+  if [[ -z "${ARTIFACT_ROOT:-}" ]]; then
+    ARTIFACT_ROOT="$(resolve_branch_artifact_root "$branch_name")"
+  fi
+
+  if [[ -z "$branch_name" ]]; then
+    branch_name="$(resolve_current_branch_name)"
+    BRANCH="$branch_name"
+  fi
+
+  if [[ -z "${BRANCH_PATH:-}" ]]; then
+    BRANCH_PATH="$(resolve_branch_artifact_slug "$branch_name" "$ARTIFACT_ROOT")"
+  fi
+
+  LOG_DIR="${ARTIFACT_ROOT}/branches/${BRANCH_PATH}/logs"
+  mkdir -p "$LOG_DIR"
+  LOG_CONTEXT_READY=true
+}
+
+# Return the next deterministic sequence number for a role/action log key.
+next_log_sequence() {
+  local key="$1"
+  local current=0
+  local next=0
+
+  current="${LOG_SEQUENCE_COUNTER[$key]:-0}"
+  next=$((current + 1))
+  LOG_SEQUENCE_COUNTER["$key"]="$next"
+  LOG_SEQUENCE_VALUE="$(printf '%03d' "$next")"
+
+  printf '%s\n' "$LOG_SEQUENCE_VALUE"
+}
+
+# Build a deterministic branch-scoped log filename for a role/action execution.
+build_log_file_path() {
+  local role="$1"
+  local action="$2"
+  local key=""
+
+  ensure_logging_context
+  key="${role}-${action}"
+  next_log_sequence "$key" >/dev/null
+
+  LOG_FILE_PATH="${LOG_DIR}/${role}-${action}-${LOG_SEQUENCE_VALUE}.log"
+}
+
+# Run a CLI command without output routing logic.
 run_cli() {
+  "$@"
+}
+
+# Run a CLI command and persist combined output to the provided log file.
+run_cli_logged() {
+  local log_file="$1"
+  shift
+
   if [[ "$VERBOSE" == true ]]; then
-    "$@" 2>&1
+    run_cli "$@" 2>&1 | tee -a "$log_file"
   else
-    "$@" >/dev/null 2>&1
+    run_cli "$@" >>"$log_file" 2>&1
   fi
 }
 
@@ -545,6 +606,8 @@ run_role_action() {
   local role="$1"
   local action="$2"
   local continue_mode="$3"
+  local log_action="$action"
+  local log_file=""
   local cli=""
   local model_args_name=""
   local cursor_args_name=""
@@ -608,37 +671,48 @@ run_role_action() {
       ;;
   esac
 
+  if [[ "${REVIEW_LOOP_ATTEMPT:-0}" -gt 0 ]]; then
+    case "$action" in
+      plan-update|code-fix|plan-review|code-review)
+        log_action="${action}-loop"
+        ;;
+    esac
+  fi
+
+  build_log_file_path "$role" "$log_action"
+  log_file="$LOG_FILE_PATH"
+
   case "$cli" in
     claude)
       local -n claude_model_args="$model_args_name"
       if [[ "$continue_mode" == true ]]; then
-        run_cli claude "${claude_model_args[@]}" -c -p "$prompt"
+        run_cli_logged "$log_file" claude "${claude_model_args[@]}" -c -p "$prompt"
       else
-        run_cli claude "${claude_model_args[@]}" -p "$prompt"
+        run_cli_logged "$log_file" claude "${claude_model_args[@]}" -p "$prompt"
       fi
       ;;
     codex)
       local -n codex_model_args="$model_args_name"
       if [[ "$continue_mode" == true ]]; then
-        run_cli codex $CODEX_BASE_ARGS "${codex_model_args[@]}" exec resume --last "$codex_prompt"
+        run_cli_logged "$log_file" codex $CODEX_BASE_ARGS "${codex_model_args[@]}" exec resume --last "$codex_prompt"
       else
-        run_cli codex $CODEX_BASE_ARGS "${codex_model_args[@]}" exec "$codex_prompt"
+        run_cli_logged "$log_file" codex $CODEX_BASE_ARGS "${codex_model_args[@]}" exec "$codex_prompt"
       fi
       ;;
     cursor)
       local -n cursor_args="$cursor_args_name"
       if [[ "$continue_mode" == true ]]; then
-        run_cli cursor-agent "${cursor_args[@]}" --continue "$prompt"
+        run_cli_logged "$log_file" cursor-agent "${cursor_args[@]}" --continue "$prompt"
       else
-        run_cli cursor-agent "${cursor_args[@]}" "$prompt"
+        run_cli_logged "$log_file" cursor-agent "${cursor_args[@]}" "$prompt"
       fi
       ;;
     gemini)
       local -n gemini_model_args="$model_args_name"
       if [[ "$continue_mode" == true ]]; then
-        run_cli gemini "${gemini_model_args[@]}" --resume latest --prompt "$prompt"
+        run_cli_logged "$log_file" gemini "${gemini_model_args[@]}" --resume latest --prompt "$prompt"
       else
-        run_cli gemini "${gemini_model_args[@]}" --prompt "$prompt"
+        run_cli_logged "$log_file" gemini "${gemini_model_args[@]}" --prompt "$prompt"
       fi
       ;;
   esac
@@ -697,9 +771,11 @@ review_loop() {
   local updater="$5"
   local tries=0
 
+  REVIEW_LOOP_ATTEMPT=0
   echo "$label review loop started..."
   until [[ -f "$file" ]] && grep -q 'ALL GOOD' "$file"; do
     tries=$((tries + 1))
+    REVIEW_LOOP_ATTEMPT="$tries"
     if (( tries >= MAX_TRIES )); then
       echo "Gave up after $MAX_TRIES tries (no 'ALL GOOD' in $file)" >&2
       exit 2
@@ -950,6 +1026,10 @@ initialize_runtime_state() {
   MAX_TRIES="${MAX_TRIES:-20}"
   SLEEP_SECS="${SLEEP_SECS:-0.2}"
   CODEX_BASE_ARGS="--sandbox workspace-write -a never"
+  LOG_CONTEXT_READY=false
+  LOG_DIR=""
+  REVIEW_LOOP_ATTEMPT=0
+  declare -gA LOG_SEQUENCE_COUNTER=()
 
   build_cursor_args "$CODER_MODEL" CODER_CURSOR_ARGS
   build_cursor_args "$PLANNER_MODEL" PLANNER_CURSOR_ARGS
