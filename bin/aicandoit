@@ -18,9 +18,9 @@ usage() {
 Usage: aicandoit --coder <cli[/model]> --reviewer <cli[/model]> [--planner <cli[/model]>] [--mode <stage>] [--worktree] [--branch <name> | --current-branch | --auto-branch] <prompt...>
 
 Options:
-  -C, --coder <cli[/model]>      Coder CLI: claude, codex, or cursor; optionally append /model (required)
-  -R, --reviewer <cli[/model]>   Reviewer CLI: claude, codex, or cursor; optionally append /model; must differ from --coder and --planner by CLI or effective model (required)
-  -P, --planner <cli[/model]>    Planner CLI: claude, codex, or cursor; optionally append /model; defaults to --coder
+  -C, --coder <cli[/model]>      Coder CLI: claude, codex, cursor, or gemini; optionally append /model (required)
+  -R, --reviewer <cli[/model]>   Reviewer CLI: claude, codex, cursor, or gemini; optionally append /model; must differ from --coder and --planner by CLI or effective model (required)
+  -P, --planner <cli[/model]>    Planner CLI: claude, codex, cursor, or gemini; optionally append /model; defaults to --coder
   -M, --mode <stage>             Stage to run: plan, plan-review, code, or code-review; defaults to full workflow
   -W, --worktree                 Run on a branch worktree instead of switching the source checkout
       --verbose                  Show CLI tool output (stderr merged to stdout)
@@ -73,18 +73,21 @@ effective_model() {
   fi
 }
 
-# Build model args for claude and codex.
+# Build model args for CLIs that support --model.
 build_model_args() {
   local model="$1"
   local -n claude_args="$2"
   local -n codex_args="$3"
+  local -n gemini_args="$4"
 
   if [[ -n "$model" ]]; then
     claude_args=(--model "$model")
     codex_args=(--model "$model")
+    gemini_args=(--model "$model")
   else
     claude_args=()
     codex_args=()
+    gemini_args=()
   fi
 }
 
@@ -502,7 +505,7 @@ resolve_target_branch_name() {
 
 # Check that a CLI name is supported.
 valid_cli() {
-  [[ "$1" == "claude" || "$1" == "codex" || "$1" == "cursor" ]]
+  [[ "$1" == "claude" || "$1" == "codex" || "$1" == "cursor" || "$1" == "gemini" ]]
 }
 
 # Run a CLI command honoring the VERBOSE flag.
@@ -520,6 +523,7 @@ run_plan() {
     claude) run_cli claude "${PLANNER_CLAUDE_MODEL[@]}" -p "/plan-it $PROMPT" ;;
     codex)  run_cli codex $CODEX_BASE_ARGS "${PLANNER_CODEX_MODEL[@]}" exec "\$plan-it $PROMPT" ;;
     cursor) run_cli cursor-agent "${PLANNER_CURSOR_ARGS[@]}" "/plan-it $PROMPT" ;;
+    gemini) run_cli gemini "${PLANNER_GEMINI_MODEL[@]}" --prompt "/plan-it $PROMPT" ;;
   esac
 }
 
@@ -529,6 +533,7 @@ run_plan_update() {
     claude) run_cli claude "${PLANNER_CLAUDE_MODEL[@]}" -c -p "/plan-update" ;;
     codex)  run_cli codex $CODEX_BASE_ARGS "${PLANNER_CODEX_MODEL[@]}" exec resume --last '$plan-update' ;;
     cursor) run_cli cursor-agent "${PLANNER_CURSOR_ARGS[@]}" --continue '/plan-update' ;;
+    gemini) run_cli gemini "${PLANNER_GEMINI_MODEL[@]}" --resume latest --prompt "/plan-update" ;;
   esac
 }
 
@@ -539,12 +544,14 @@ run_code() {
       claude) run_cli claude "${CODER_CLAUDE_MODEL[@]}" -c -p "/code-it" ;;
       codex)  run_cli codex $CODEX_BASE_ARGS "${CODER_CODEX_MODEL[@]}" exec resume --last '$code-it' ;;
       cursor) run_cli cursor-agent "${CODER_CURSOR_ARGS[@]}" --continue '/code-it' ;;
+      gemini) run_cli gemini "${CODER_GEMINI_MODEL[@]}" --resume latest --prompt "/code-it" ;;
     esac
   else
     case "$CODER_CLI" in
       claude) run_cli claude "${CODER_CLAUDE_MODEL[@]}" -p "/code-it" ;;
       codex)  run_cli codex $CODEX_BASE_ARGS "${CODER_CODEX_MODEL[@]}" exec '$code-it' ;;
       cursor) run_cli cursor-agent "${CODER_CURSOR_ARGS[@]}" '/code-it' ;;
+      gemini) run_cli gemini "${CODER_GEMINI_MODEL[@]}" --prompt "/code-it" ;;
     esac
   fi
 }
@@ -555,6 +562,7 @@ run_code_fix() {
     claude) run_cli claude "${CODER_CLAUDE_MODEL[@]}" -c -p "/code-fix" ;;
     codex)  run_cli codex $CODEX_BASE_ARGS "${CODER_CODEX_MODEL[@]}" exec resume --last '$code-fix' ;;
     cursor) run_cli cursor-agent "${CODER_CURSOR_ARGS[@]}" --continue '/code-fix' ;;
+    gemini) run_cli gemini "${CODER_GEMINI_MODEL[@]}" --resume latest --prompt "/code-fix" ;;
   esac
 }
 
@@ -564,6 +572,7 @@ run_plan_review() {
     claude) run_cli claude "${REVIEWER_CLAUDE_MODEL[@]}" -p "/plan-review" ;;
     codex)  run_cli codex $CODEX_BASE_ARGS "${REVIEWER_CODEX_MODEL[@]}" exec '$plan-review' ;;
     cursor) run_cli cursor-agent "${REVIEWER_CURSOR_ARGS[@]}" '/plan-review' ;;
+    gemini) run_cli gemini "${REVIEWER_GEMINI_MODEL[@]}" --prompt "/plan-review" ;;
   esac
 }
 
@@ -573,6 +582,7 @@ run_plan_review_loop() {
     claude) run_cli claude "${REVIEWER_CLAUDE_MODEL[@]}" -c -p "/plan-review" ;;
     codex)  run_cli codex $CODEX_BASE_ARGS "${REVIEWER_CODEX_MODEL[@]}" exec resume --last '$plan-review' ;;
     cursor) run_cli cursor-agent "${REVIEWER_CURSOR_ARGS[@]}" --continue '/plan-review' ;;
+    gemini) run_cli gemini "${REVIEWER_GEMINI_MODEL[@]}" --resume latest --prompt "/plan-review" ;;
   esac
 }
 
@@ -582,6 +592,7 @@ run_code_review() {
     claude) run_cli claude "${REVIEWER_CLAUDE_MODEL[@]}" -c -p "/code-review" ;;
     codex)  run_cli codex $CODEX_BASE_ARGS "${REVIEWER_CODEX_MODEL[@]}" exec resume --last '$code-review' ;;
     cursor) run_cli cursor-agent "${REVIEWER_CURSOR_ARGS[@]}" --continue '/code-review' ;;
+    gemini) run_cli gemini "${REVIEWER_GEMINI_MODEL[@]}" --resume latest --prompt "/code-review" ;;
   esac
 }
 
@@ -591,6 +602,7 @@ run_code_review_loop() {
     claude) run_cli claude "${REVIEWER_CLAUDE_MODEL[@]}" -c -p "/code-review" ;;
     codex)  run_cli codex $CODEX_BASE_ARGS "${REVIEWER_CODEX_MODEL[@]}" exec resume --last '$code-review' ;;
     cursor) run_cli cursor-agent "${REVIEWER_CURSOR_ARGS[@]}" --continue '/code-review' ;;
+    gemini) run_cli gemini "${REVIEWER_GEMINI_MODEL[@]}" --resume latest --prompt "/code-review" ;;
   esac
 }
 
@@ -762,15 +774,15 @@ validate_args() {
   validate_cli_model --reviewer "$REVIEWER" "$REVIEWER_CLI" "$REVIEWER_MODEL"
 
   if ! valid_cli "$CODER_CLI"; then
-    echo "error: --coder must be claude, codex, or cursor (got: $CODER_CLI)" >&2
+    echo "error: --coder must be claude, codex, cursor, or gemini (got: $CODER_CLI)" >&2
     usage
   fi
   if ! valid_cli "$PLANNER_CLI"; then
-    echo "error: --planner must be claude, codex, or cursor (got: $PLANNER_CLI)" >&2
+    echo "error: --planner must be claude, codex, cursor, or gemini (got: $PLANNER_CLI)" >&2
     usage
   fi
   if ! valid_cli "$REVIEWER_CLI"; then
-    echo "error: --reviewer must be claude, codex, or cursor (got: $REVIEWER_CLI)" >&2
+    echo "error: --reviewer must be claude, codex, cursor, or gemini (got: $REVIEWER_CLI)" >&2
     usage
   fi
 
@@ -837,6 +849,9 @@ check_dependencies() {
   if [[ "$CODER_CLI" == "cursor" || "$PLANNER_CLI" == "cursor" || "$REVIEWER_CLI" == "cursor" ]]; then
     command -v cursor-agent >/dev/null || { echo "cursor-agent not found in PATH" >&2; exit 127; }
   fi
+  if [[ "$CODER_CLI" == "gemini" || "$PLANNER_CLI" == "gemini" || "$REVIEWER_CLI" == "gemini" ]]; then
+    command -v gemini >/dev/null || { echo "gemini not found in PATH" >&2; exit 127; }
+  fi
 }
 
 # Print the chosen workflow configuration.
@@ -857,9 +872,9 @@ initialize_runtime_state() {
   build_cursor_args "$CODER_MODEL" CODER_CURSOR_ARGS
   build_cursor_args "$PLANNER_MODEL" PLANNER_CURSOR_ARGS
   build_cursor_args "$REVIEWER_MODEL" REVIEWER_CURSOR_ARGS
-  build_model_args "$CODER_MODEL" CODER_CLAUDE_MODEL CODER_CODEX_MODEL
-  build_model_args "$PLANNER_MODEL" PLANNER_CLAUDE_MODEL PLANNER_CODEX_MODEL
-  build_model_args "$REVIEWER_MODEL" REVIEWER_CLAUDE_MODEL REVIEWER_CODEX_MODEL
+  build_model_args "$CODER_MODEL" CODER_CLAUDE_MODEL CODER_CODEX_MODEL CODER_GEMINI_MODEL
+  build_model_args "$PLANNER_MODEL" PLANNER_CLAUDE_MODEL PLANNER_CODEX_MODEL PLANNER_GEMINI_MODEL
+  build_model_args "$REVIEWER_MODEL" REVIEWER_CLAUDE_MODEL REVIEWER_CODEX_MODEL REVIEWER_GEMINI_MODEL
 }
 
 # Prepare the branch checkout or worktree before workflow execution.

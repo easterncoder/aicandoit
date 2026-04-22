@@ -3,7 +3,7 @@
 AI Can Do It is a unified Bash launcher that runs a plan-and-implement loop using any supported coder and reviewer CLI pair.
 
 - `bin/aicandoit` accepts `--coder`, `--reviewer`, optional `--planner`, optional `--mode`, optional `--worktree`, and branch selection via `--branch`, `--current-branch`, or `--auto-branch`.
-- Accepted CLIs are `claude`, `codex`, and `cursor`, optionally with a model suffix in `cli/model` form.
+- Accepted CLIs are `claude`, `codex`, `cursor`, and `gemini`, optionally with a model suffix in `cli/model` form.
 
 - Author: Mike Lopez <e@mikelopez.com>
 - Copyright (C) 2026 Mike Lopez <e@mikelopez.com>
@@ -17,7 +17,7 @@ AI Can Do It is a unified Bash launcher that runs a plan-and-implement loop usin
 3. Resolve a deterministic branch name before checkout or worktree setup. Existing local branch names receive a numeric suffix such as `-2`.
 4. Switch to the named branch when it exists, create it when it does not, or use the current branch when `--current-branch` is passed or inferred.
 5. If `--worktree` is passed with `--branch` or `--auto-branch`, create or reuse a deterministic branch worktree under `<repo-root>/.aicandoit/branches/<branch-slug>/worktree` and run the workflow from that worktree.
-6. Run the planner CLI with its workflow skill prefix: `/plan-it` for Claude and Cursor, `$plan-it` for Codex.
+6. Run the planner CLI with its workflow skill prefix: `/plan-it` for Claude, Cursor, and Gemini, `$plan-it` for Codex.
 7. Run the reviewer CLI on the generated plan.
 8. Loop on the planner CLI with `/plan-update` or `$plan-update` plus re-review until `.aicandoit/branches/<branch-slug>/plan-review.md` contains `ALL GOOD`.
 9. Run the coder CLI with `/code-it` or `$code-it`.
@@ -34,9 +34,9 @@ The retry loop is controlled by:
 
 | Flag | Short | Required | Accepted values |
 |---|---|---|---|
-| `--coder` | `-C` | Yes | `cli` or `cli/model`; CLIs: `claude`, `codex`, `cursor` |
-| `--planner` | `-P` | No | `cli` or `cli/model`; CLIs: `claude`, `codex`, `cursor`; defaults to `--coder` |
-| `--reviewer` | `-R` | Yes | `cli` or `cli/model`; CLIs: `claude`, `codex`, `cursor`; must differ from `--coder` and `--planner` by CLI or effective model |
+| `--coder` | `-C` | Yes | `cli` or `cli/model`; CLIs: `claude`, `codex`, `cursor`, `gemini` |
+| `--planner` | `-P` | No | `cli` or `cli/model`; CLIs: `claude`, `codex`, `cursor`, `gemini`; defaults to `--coder` |
+| `--reviewer` | `-R` | Yes | `cli` or `cli/model`; CLIs: `claude`, `codex`, `cursor`, `gemini`; must differ from `--coder` and `--planner` by CLI or effective model |
 | `--mode` | `-M` | No | `plan`, `plan-review`, `code`, or `code-review`; when omitted, the full workflow runs |
 | `--worktree` | `-W` | No | Use a branch worktree instead of switching the source checkout |
 | `--verbose` | | No | Flag only; when set, CLI tool output is shown with stderr merged into stdout |
@@ -78,6 +78,7 @@ The CLIs required depend on the values you pass to `--coder`, `--planner`, and `
 - `claude`: [Claude CLI](https://docs.anthropic.com/en/docs/claude-code)
 - `codex`: [Codex CLI](https://developers.openai.com/codex/cli/)
 - `cursor`: `cursor-agent`
+- `gemini`: `gemini`
 
 ## Installation
 
@@ -136,6 +137,16 @@ If you pass `--coder cursor`, `--planner cursor`, or `--reviewer cursor`, make s
 - `/code-review`
 - `/code-fix`
 
+If you pass `--coder gemini`, `--planner gemini`, or `--reviewer gemini`, Gemini CLI should run in non-interactive prompt mode and use `--resume latest` for looped review or fix steps.
+Gemini uses the same slash skill commands:
+
+- `/plan-it`
+- `/plan-review`
+- `/plan-update`
+- `/code-it`
+- `/code-review`
+- `/code-fix`
+
 ## Setup Check
 
 Verify the always-required CLIs:
@@ -159,10 +170,20 @@ codex --version
 cursor-agent --version
 ```
 
+```bash
+gemini --version
+```
+
 Run the deterministic auto-branch helper coverage:
 
 ```bash
 bash tests/test-aicandoit-auto-branch.sh
+```
+
+Run Gemini coverage:
+
+```bash
+bash tests/test-aicandoit-gemini.sh
 ```
 
 ## Usage
@@ -182,6 +203,9 @@ aicandoit --coder codex --reviewer claude --auto-branch "work on README.md examp
 aicandoit --coder codex --reviewer claude --auto-branch --worktree "fix gh issue 24"
 aicandoit --coder codex --reviewer claude --branch feature/worktree-smoke --worktree "run workflow in branch worktree"
 aicandoit --planner codex --coder claude --reviewer cursor --current-branch "add model routing"
+aicandoit --coder gemini --reviewer claude --current-branch "add model routing"
+aicandoit --planner gemini --coder codex --reviewer cursor --current-branch "add model routing"
+aicandoit --coder gemini/gemini-2.5-pro --reviewer gemini/gemini-2.5-flash --current-branch "add model routing"
 aicandoit --coder cursor/composer-1 --reviewer claude/claude-opus-4-6 --current-branch "add model routing"
 aicandoit --coder claude/claude-sonnet-4-6 --reviewer claude/claude-opus-4-6 --current-branch "add feature"
 aicandoit --coder claude --reviewer codex --current-branch --mode plan "add staging support"
