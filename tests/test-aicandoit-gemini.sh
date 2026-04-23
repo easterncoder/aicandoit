@@ -398,6 +398,105 @@ if ! (
   fail "prepare_branch_checkout should invoke guard before branch switching"
 fi
 
+aicandoit_worktree_wrapper() {
+  local output_file=""
+  local output=""
+  local status=0
+  local handoff_path=""
+  local errexit_was_on=0
+
+  if [[ "$-" == *e* ]]; then
+    errexit_was_on=1
+  fi
+
+  output_file="$(mktemp)"
+  set +e
+  (
+    set -euo pipefail
+    main "$@"
+  ) >"$output_file" 2>&1
+  status=$?
+  if [[ "$errexit_was_on" -eq 1 ]]; then
+    set -e
+  fi
+  output="$(cat "$output_file")"
+  rm -f "$output_file"
+
+  printf '%s\n' "$output"
+  if [[ "$status" -ne 0 ]]; then
+    return "$status"
+  fi
+
+  handoff_path="$(printf '%s\n' "$output" | sed -n 's/^AICANDOIT_WORKTREE_PATH=//p' | tail -n 1)"
+  if [[ -n "$handoff_path" ]]; then
+    cd "$handoff_path"
+  fi
+}
+
+WRAPPER_TMP_DIR="$(mktemp -d)"
+SOURCE_DIR="${WRAPPER_TMP_DIR}/source"
+WORKTREE_DIR="${WRAPPER_TMP_DIR}/worktree"
+mkdir -p "$SOURCE_DIR" "$WORKTREE_DIR"
+
+parse_args() {
+  USE_WORKTREE=true
+}
+validate_args() { :; }
+print_configuration() { :; }
+check_dependencies() { :; }
+initialize_runtime_state() { :; }
+prepare_branch_checkout() {
+  WORKTREE_PATH="$WORKTREE_DIR"
+}
+resolve_artifact_paths() { :; }
+validate_mode_prerequisites() { :; }
+run_selected_mode() {
+  return "$WRAPPER_RUN_SELECTED_MODE_STATUS"
+}
+
+cd "$SOURCE_DIR"
+WRAPPER_RUN_SELECTED_MODE_STATUS=0
+wrapper_success_output_file="${WRAPPER_TMP_DIR}/wrapper-success.out"
+aicandoit_worktree_wrapper >"$wrapper_success_output_file"
+wrapper_success_output="$(cat "$wrapper_success_output_file")"
+assert_equals "$WORKTREE_DIR" "$(pwd -P)" "wrapper success should cd into resolved worktree path"
+assert_contains "$wrapper_success_output" "AICANDOIT_WORKTREE_PATH=$WORKTREE_DIR" "wrapper success output includes machine-readable handoff path"
+
+cd "$SOURCE_DIR"
+WRAPPER_RUN_SELECTED_MODE_STATUS=1
+wrapper_failure_output_file="${WRAPPER_TMP_DIR}/wrapper-failure.out"
+set +e
+aicandoit_worktree_wrapper >"$wrapper_failure_output_file"
+wrapper_failure_status=$?
+set -e
+wrapper_failure_output="$(cat "$wrapper_failure_output_file")"
+assert_equals "1" "$wrapper_failure_status" "wrapper failure should return non-zero status"
+assert_equals "$SOURCE_DIR" "$(pwd -P)" "wrapper failure should not cd into worktree"
+if [[ "$wrapper_failure_output" == *"AICANDOIT_WORKTREE_PATH="* ]]; then
+  fail "wrapper failure should not emit machine-readable handoff path"
+fi
+
+cd "$REPO_ROOT"
+rm -rf "$WRAPPER_TMP_DIR"
+
+# Restore launcher functions after wrapper-specific stubs.
+# shellcheck source=bin/aicandoit
+source "${REPO_ROOT}/bin/aicandoit"
+VERBOSE=false
+BRANCH="$(git branch --show-current)"
+LAST_CMD=()
+run_cli() {
+  LAST_CMD=("$@")
+}
+build_log_file_path() {
+  LOG_FILE_PATH="/tmp/test-aicandoit-gemini.log"
+}
+run_cli_logged() {
+  local _log_file="$1"
+  shift
+  run_cli "$@"
+}
+
 CODER_MODEL="gemini-model"
 PLANNER_MODEL="gemini-model"
 REVIEWER_MODEL="gemini-model"
