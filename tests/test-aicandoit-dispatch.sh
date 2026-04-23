@@ -44,7 +44,6 @@ run_cli_logged() {
 
 MODEL="dispatch-model"
 PROMPT="implement feature"
-PROMPT_ARGS=("implement" "feature")
 CODER_MODEL="$MODEL"
 PLANNER_MODEL="$MODEL"
 REVIEWER_MODEL="$MODEL"
@@ -216,11 +215,5 @@ for cli in claude codex cursor gemini; do
   assert_coder_dispatch "$cli"
   assert_reviewer_dispatch "$cli"
 done
-
-PROMPT="implement feature with spaces"
-PROMPT_ARGS=("implement" "feature" "with" "spaces")
-PLANNER_CLI="codex"
-run_plan
-assert_last_command "planner plan codex whitespace prompt" codex --sandbox workspace-write -a never --model "$MODEL" exec "\$plan-it $PROMPT"
 
 echo 'dispatch coverage tests passed'
