@@ -11,6 +11,7 @@ AUTO_BRANCH_PREFIX="auto"
 AUTO_BRANCH_FILE_MAX_BYTES="${AUTO_BRANCH_FILE_MAX_BYTES:-65536}"
 AUTO_BRANCH_FILE_SNIPPET_BYTES="${AUTO_BRANCH_FILE_SNIPPET_BYTES:-512}"
 AUTO_BRANCH_NAME_MAX="${AUTO_BRANCH_NAME_MAX:-48}"
+ARTIFACT_ROOT_DEFAULT=".aicandoit"
 
 # Print usage and exit.
 usage() {
@@ -256,11 +257,6 @@ branch_artifact_dir_exists() {
   local branch_path="$2"
 
   [[ -d "${artifact_root}/branches/${branch_path}" ]]
-}
-
-# Resolve the artifact root for a branch.
-resolve_branch_artifact_root() {
-  printf '.aicandoit\n'
 }
 
 # Resolve the canonical repository root from the shared git directory.
@@ -572,8 +568,8 @@ resolve_target_branch_name() {
     return 0
   fi
 
-  current_branch_path="$(resolve_branch_artifact_slug "$current_branch" ".aicandoit")"
-  if branch_artifact_dir_exists ".aicandoit" "$current_branch_path"; then
+  current_branch_path="$(resolve_branch_artifact_slug "$current_branch" "$ARTIFACT_ROOT_DEFAULT")"
+  if branch_artifact_dir_exists "$ARTIFACT_ROOT_DEFAULT" "$current_branch_path"; then
     USE_CURRENT_BRANCH=true
     BRANCH="$current_branch"
     return 0
@@ -597,7 +593,7 @@ ensure_logging_context() {
   local branch_name="${BRANCH:-}"
 
   if [[ -z "${ARTIFACT_ROOT:-}" ]]; then
-    ARTIFACT_ROOT="$(resolve_branch_artifact_root "$branch_name")"
+    ARTIFACT_ROOT="$ARTIFACT_ROOT_DEFAULT"
   fi
 
   if [[ -z "$branch_name" ]]; then
@@ -1144,7 +1140,7 @@ prepare_branch_checkout() {
 
 # Resolve branch-scoped artifact paths after branch setup.
 resolve_artifact_paths() {
-  ARTIFACT_ROOT="$(resolve_branch_artifact_root "$BRANCH")"
+  ARTIFACT_ROOT="${ARTIFACT_ROOT:-$ARTIFACT_ROOT_DEFAULT}"
   BRANCH_PATH="$(resolve_branch_artifact_slug "$BRANCH" "$ARTIFACT_ROOT")"
   PLAN_PATH="${ARTIFACT_ROOT}/branches/${BRANCH_PATH}/plan.md"
   PLAN_FILE="${ARTIFACT_ROOT}/branches/${BRANCH_PATH}/plan-review.md"

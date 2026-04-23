@@ -98,6 +98,24 @@ path_two="$LOG_FILE_PATH"
 assert_equals "${ARTIFACT_ROOT}/branches/${BRANCH_PATH}/logs/planner-plan-001.log" "$path_one" "first planner log path"
 assert_equals "${ARTIFACT_ROOT}/branches/${BRANCH_PATH}/logs/planner-plan-002.log" "$path_two" "second planner log path"
 
+unset ARTIFACT_ROOT
+BRANCH="feature/default-root"
+BRANCH_PATH="feature_default-root"
+LOG_CONTEXT_READY=false
+LOG_DIR=""
+unset LOG_SEQUENCE_COUNTER
+unset LOG_SEQUENCE_VALUE
+
+build_log_file_path planner plan
+default_path_one="$LOG_FILE_PATH"
+assert_equals "${ARTIFACT_ROOT_DEFAULT}/branches/${BRANCH_PATH}/logs/planner-plan-001.log" "$default_path_one" "default root first planner log path"
+
+unset ARTIFACT_ROOT
+resolve_artifact_paths
+resolved_default_branch_path="$(resolve_branch_artifact_slug "$BRANCH" "$ARTIFACT_ROOT_DEFAULT")"
+assert_equals "${ARTIFACT_ROOT_DEFAULT}/branches/${resolved_default_branch_path}/plan.md" "$PLAN_PATH" "default root plan path"
+assert_equals "${ARTIFACT_ROOT_DEFAULT}/branches/${resolved_default_branch_path}/code-review.md" "$CODE_FILE" "default root code review path"
+
 CODER_MODEL=""
 PLANNER_MODEL=""
 REVIEWER_MODEL=""
