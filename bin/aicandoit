@@ -584,6 +584,11 @@ valid_cli() {
   [[ "$1" == "claude" || "$1" == "codex" || "$1" == "cursor" || "$1" == "gemini" ]]
 }
 
+# Generate the UTC timestamp used for one invocation's log run folder.
+generate_run_timestamp_utc() {
+  date -u +%Y%m%d%H%M%S
+}
+
 # Ensure branch-scoped logging paths are initialized before command execution.
 ensure_logging_context() {
   if [[ "${LOG_CONTEXT_READY:-false}" == true ]]; then
@@ -591,6 +596,9 @@ ensure_logging_context() {
   fi
 
   local branch_name="${BRANCH:-}"
+  local logs_root=""
+  local run_counter=1
+  local candidate_run_dir=""
 
   if [[ -z "${ARTIFACT_ROOT:-}" ]]; then
     ARTIFACT_ROOT="$ARTIFACT_ROOT_DEFAULT"
@@ -605,8 +613,29 @@ ensure_logging_context() {
     BRANCH_PATH="$(resolve_branch_artifact_slug "$branch_name" "$ARTIFACT_ROOT")"
   fi
 
-  LOG_DIR="${ARTIFACT_ROOT}/branches/${BRANCH_PATH}/logs"
-  mkdir -p "$LOG_DIR"
+  if [[ -z "${RUN_TIMESTAMP_UTC:-}" ]]; then
+    RUN_TIMESTAMP_UTC="$(generate_run_timestamp_utc)"
+  fi
+
+  logs_root="${ARTIFACT_ROOT}/branches/${BRANCH_PATH}/logs"
+  mkdir -p "$logs_root"
+
+  if [[ -z "${LOG_RUN_DIR:-}" ]]; then
+    while true; do
+      RUN_COUNTER="$(printf '%02d' "$run_counter")"
+      candidate_run_dir="${logs_root}/${RUN_TIMESTAMP_UTC}-${RUN_COUNTER}"
+
+      if [[ ! -d "$candidate_run_dir" ]]; then
+        mkdir -p "$candidate_run_dir"
+        LOG_RUN_DIR="$candidate_run_dir"
+        break
+      fi
+
+      run_counter=$((run_counter + 1))
+    done
+  fi
+
+  LOG_DIR="$LOG_RUN_DIR"
   LOG_CONTEXT_READY=true
 }
 
@@ -1086,6 +1115,9 @@ initialize_runtime_state() {
   CODEX_BASE_ARGS="--sandbox workspace-write -a never"
   LOG_CONTEXT_READY=false
   LOG_DIR=""
+  LOG_RUN_DIR=""
+  RUN_TIMESTAMP_UTC=""
+  RUN_COUNTER=""
   REVIEW_LOOP_ATTEMPT=0
   declare -gA LOG_SEQUENCE_COUNTER=()
 
