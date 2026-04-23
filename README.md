@@ -53,6 +53,14 @@ With `--worktree`, the launcher uses `<repo-root>/.aicandoit/branches/<branch-sl
 In non-worktree mode, switching to a different branch or creating a new branch requires a clean source checkout. If the resolved target branch is already checked out, the launcher continues without blocking.
 On successful `--worktree` runs, the launcher prints `AICANDOIT_WORKTREE_PATH=<absolute-path>` as a machine-readable handoff line.
 
+`<branch-slug>` is derived from the git branch name as:
+
+1. Sanitize branch text by replacing `/` with `_` and collapsing unsupported characters.
+2. Append `-<sha256-prefix10>` from the full branch name.
+
+Example: `docs/update-readme-issue-28` maps to a slug like `docs_update-readme-issue-28-<hash10>`.
+For branch artifact lookup, legacy directories that only replace `/` with `_` are still honored when present.
+
 ## Worktree Wrapper
 
 A child process cannot change your parent shell directory, so use a wrapper when you want to stay in the resolved worktree after a successful run:
