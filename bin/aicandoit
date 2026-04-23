@@ -317,6 +317,47 @@ looks_like_path_candidate() {
   [[ "$token" == */* || "$token" == .* || "$token" == *.* ]]
 }
 
+# Tokenize prompt text while preserving quoted segments that contain spaces.
+tokenize_prompt_preserving_quotes() {
+  local prompt="$1"
+  local token=""
+  local quote=""
+  local char=""
+  local i=0
+
+  for ((i = 0; i < ${#prompt}; i++)); do
+    char="${prompt:i:1}"
+
+    if [[ -n "$quote" ]]; then
+      token+="$char"
+      if [[ "$char" == "$quote" ]]; then
+        quote=""
+      fi
+      continue
+    fi
+
+    case "$char" in
+      '"'|"'"|'`')
+        quote="$char"
+        token+="$char"
+        ;;
+      $' '|$'\t'|$'\n'|$'\r')
+        if [[ -n "$token" ]]; then
+          printf '%s\n' "$token"
+          token=""
+        fi
+        ;;
+      *)
+        token+="$char"
+        ;;
+    esac
+  done
+
+  if [[ -n "$token" ]]; then
+    printf '%s\n' "$token"
+  fi
+}
+
 # Normalize a prompt token for issue or PR reference parsing.
 normalize_prompt_reference_token() {
   local token="$1"
@@ -361,7 +402,7 @@ extract_issue_numbers_from_prompt() {
   local third=""
   local i=0
 
-  read -r -a tokens <<< "$prompt"
+  mapfile -t tokens < <(tokenize_prompt_preserving_quotes "$prompt")
   for i in "${!tokens[@]}"; do
     previous=""
     first="$(normalize_prompt_reference_token "${tokens[$i]}")"
@@ -398,7 +439,7 @@ extract_pr_numbers_from_prompt() {
   local third=""
   local i=0
 
-  read -r -a tokens <<< "$prompt"
+  mapfile -t tokens < <(tokenize_prompt_preserving_quotes "$prompt")
   for i in "${!tokens[@]}"; do
     previous=""
     first="$(normalize_prompt_reference_token "${tokens[$i]}")"
@@ -434,11 +475,13 @@ extract_prompt_file_references() {
   local prompt="$1"
   local repo_root="$2"
   local -A seen=()
+  local tokens=()
   local token=""
   local candidate=""
   local resolved_path=""
 
-  for token in $prompt; do
+  mapfile -t tokens < <(tokenize_prompt_preserving_quotes "$prompt")
+  for token in "${tokens[@]}"; do
     candidate="$(normalize_prompt_path_token "$token")"
     if ! looks_like_path_candidate "$candidate"; then
       continue

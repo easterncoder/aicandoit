@@ -68,17 +68,18 @@ git -C "$FIXTURE_REPO" config user.email "fixture@example.com"
 mkdir -p "${FIXTURE_REPO}/docs" "${FIXTURE_REPO}/bin"
 printf '# AI Can Do It\n\nPlan it.\n' > "${FIXTURE_REPO}/README.md"
 printf 'Guide title\n\nMore text.\n' > "${FIXTURE_REPO}/docs/guide.txt"
+printf 'Guide with space\n' > "${FIXTURE_REPO}/docs/My Guide.txt"
 printf '\x00\x01\x02' > "${FIXTURE_REPO}/bin/blob.bin"
 awk 'BEGIN { for (i=1; i<=140; i++) { printf "LINE%03d_%0150d\n", i, i } }' > "${FIXTURE_REPO}/docs/long-lines.txt"
 
-git -C "$FIXTURE_REPO" add README.md docs/guide.txt bin/blob.bin docs/long-lines.txt
+git -C "$FIXTURE_REPO" add README.md docs/guide.txt docs/My\ Guide.txt bin/blob.bin docs/long-lines.txt
 git -C "$FIXTURE_REPO" commit -qm 'chore: initialize fixture'
 
 STUB_DIR="${TMP_DIR}/stubs"
 mkdir -p "$STUB_DIR"
 
-printf '%s\n' '#!/usr/bin/env bash' 'printf "%s\n" "${AICANDOIT_STUB_CODER_OUTPUT-feat/default}"' 'printf "%s\n" "$*" >> "${AICANDOIT_STUB_CODER_ARGS_LOG:-/dev/null}"' 'printf "%s\n" "$*" > "${AICANDOIT_STUB_CODER_ARGS_LAST:-/dev/null}"' '{ printf "===PROMPT===\n"; printf "%s\n" "${*: -1}"; } >> "${AICANDOIT_STUB_CODER_PROMPT_FILE:-/dev/null}"' > "${STUB_DIR}/codex"
-printf '%s\n' '#!/usr/bin/env bash' 'printf "%s\n" "${AICANDOIT_STUB_CODER_OUTPUT-feat/default}"' > "${STUB_DIR}/claude"
+printf '%s\n' '#!/usr/bin/env bash' 'set -euo pipefail' "source \"${REPO_ROOT}/bin/aicandoit\"" 'printf "%s\n" "$*" >> "${AICANDOIT_STUB_CODER_ARGS_LOG:-/dev/null}"' 'printf "%s\n" "$*" > "${AICANDOIT_STUB_CODER_ARGS_LAST:-/dev/null}"' '{ printf "===PROMPT===\n"; printf "%s\n" "${*: -1}"; } >> "${AICANDOIT_STUB_CODER_PROMPT_FILE:-/dev/null}"' 'if [[ "$*" == *"\$plan-it "* ]]; then' '  branch="$(git branch --show-current)"' '  slug="$(branch_to_slug "$branch")"' '  mkdir -p ".aicandoit/branches/${slug}"' '  printf "Template target: `.aicandoit/branches/{branch-slug}/plan.md`\n" > ".aicandoit/branches/${slug}/plan.md"' 'fi' 'printf "%s\n" "${AICANDOIT_STUB_CODER_OUTPUT-feat/default}"' > "${STUB_DIR}/codex"
+printf '%s\n' '#!/usr/bin/env bash' 'set -euo pipefail' "source \"${REPO_ROOT}/bin/aicandoit\"" 'if [[ "$*" == *"/plan-review"* ]]; then' '  branch="$(git branch --show-current)"' '  slug="$(branch_to_slug "$branch")"' '  mkdir -p ".aicandoit/branches/${slug}"' '  printf "ALL GOOD\n" > ".aicandoit/branches/${slug}/plan-review.md"' '  printf "ALL GOOD\n" > ".aicandoit/branches/${slug}/code-review.md"' 'fi' 'printf "%s\n" "${AICANDOIT_STUB_CODER_OUTPUT-feat/default}"' > "${STUB_DIR}/claude"
 printf '%s\n' '#!/usr/bin/env bash' 'printf "%s\n" "${AICANDOIT_STUB_CODER_OUTPUT-feat/default}"' > "${STUB_DIR}/cursor-agent"
 printf '%s\n' '#!/usr/bin/env bash' 'printf "%s\n" "${AICANDOIT_STUB_CODER_OUTPUT-feat/default}"' > "${STUB_DIR}/gemini"
 printf '%s\n' '#!/usr/bin/env bash' 'if [[ "$1" == "issue" && "$2" == "view" ]]; then exit 1; fi' 'if [[ "$1" == "pr" && "$2" == "view" ]]; then exit 1; fi' 'exit 0' > "${STUB_DIR}/gh"
@@ -113,6 +114,10 @@ assert_contains "$context" $'ISSUES:\n#24: Support AI-generated Conventional Com
 assert_contains "$context" $'PRS:\n#7: Add branch context assembly for auto-branch' 'pr context'
 assert_contains "$context" '[docs/guide.txt]' 'guide path context'
 assert_contains "$context" '[README.md]' 'readme path context'
+
+space_path_context="$(cd "$FIXTURE_REPO" && build_auto_branch_context 'inspect "docs/My Guide.txt" now' "$FIXTURE_REPO")"
+assert_contains "$space_path_context" '[docs/My Guide.txt]' 'quoted path with spaces context'
+assert_contains "$space_path_context" 'Guide with space' 'quoted path snippet context'
 
 readme_open_count="$(printf '%s' "$context" | grep -c '^\[README.md\]$')"
 assert_equals '1' "$readme_open_count" 'deduped file path'
@@ -220,6 +225,9 @@ set -e
 
 end_to_end_branch="$(git -C "$FIXTURE_REPO" branch --show-current)"
 assert_equals 'feat/ai-generated-branch-name' "$end_to_end_branch" 'end-to-end branch selection'
+end_to_end_slug="$(branch_to_slug "$end_to_end_branch")"
+[[ -f "${FIXTURE_REPO}/.aicandoit/branches/${end_to_end_slug}/plan.md" ]] || fail 'end-to-end plan artifact missing'
+[[ -f "${FIXTURE_REPO}/.aicandoit/branches/${end_to_end_slug}/plan-review.md" ]] || fail 'end-to-end plan review artifact missing'
 
 coder_prompt="$(cat "${AICANDOIT_STUB_CODER_PROMPT_FILE}")"
 assert_contains "$coder_prompt" 'Return exactly one line containing only a git branch name in this format: <type>/<slug>' 'strict generation instruction'
