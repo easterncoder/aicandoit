@@ -1489,6 +1489,13 @@ run_selected_mode() {
   echo "AI Can Do It finished the workflow."
 }
 
+# Emit a machine-readable worktree handoff path after a successful worktree run.
+emit_worktree_handoff() {
+  if [[ "$USE_WORKTREE" == true && -n "${WORKTREE_PATH:-}" ]]; then
+    printf 'AICANDOIT_WORKTREE_PATH=%s\n' "$WORKTREE_PATH"
+  fi
+}
+
 # Run the launcher.
 main() {
   CODER=""
@@ -1515,6 +1522,7 @@ main() {
   resolve_artifact_paths
   validate_mode_prerequisites
   run_selected_mode
+  emit_worktree_handoff
 }
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then

@@ -51,6 +51,36 @@ If `--branch`, `--current-branch`, and `--auto-branch` are all omitted, the laun
 `--auto-branch` is mutually exclusive with `--branch` and `--current-branch`.
 With `--worktree`, the launcher uses `<repo-root>/.aicandoit/branches/<branch-slug>/worktree`. `--worktree` does not support `--current-branch`.
 In non-worktree mode, switching to a different branch or creating a new branch requires a clean source checkout. If the resolved target branch is already checked out, the launcher continues without blocking.
+On successful `--worktree` runs, the launcher prints `AICANDOIT_WORKTREE_PATH=<absolute-path>` as a machine-readable handoff line.
+
+## Worktree Wrapper
+
+A child process cannot change your parent shell directory, so use a wrapper when you want to stay in the resolved worktree after a successful run:
+
+```bash
+aicandoit-worktree() {
+  local output status handoff_path
+
+  output="$(aicandoit "$@" 2>&1)"
+  status=$?
+  printf '%s\n' "$output"
+  if [[ "$status" -ne 0 ]]; then
+    return "$status"
+  fi
+
+  handoff_path="$(printf '%s\n' "$output" | sed -n 's/^AICANDOIT_WORKTREE_PATH=//p' | tail -n 1)"
+  if [[ -n "$handoff_path" ]]; then
+    cd "$handoff_path"
+  fi
+}
+```
+
+Example:
+
+```bash
+aicandoit-worktree --coder codex --reviewer claude --branch feature/worktree-smoke --worktree "run workflow in branch worktree"
+pwd
+```
 
 ## Auto Branch Rules
 
