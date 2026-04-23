@@ -840,9 +840,7 @@ ensure_logging_context() {
     BRANCH="$branch_name"
   fi
 
-  if [[ -z "${BRANCH_PATH:-}" ]]; then
-    BRANCH_PATH="$(resolve_branch_artifact_slug "$branch_name" "$ARTIFACT_ROOT")"
-  fi
+  resolve_artifact_paths
 
   if [[ -z "${RUN_TIMESTAMP_UTC:-}" ]]; then
     RUN_TIMESTAMP_UTC="$(generate_run_timestamp_utc)"

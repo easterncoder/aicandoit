@@ -90,23 +90,6 @@ assert_file_contains "$VERBOSE_LOG" "stderr:loud" "verbose mode log captures std
 
 ARTIFACT_ROOT="${TMP_DIR}/artifacts"
 BRANCH="gh/15"
-BRANCH_PATH="gh_15"
-LOG_CONTEXT_READY=false
-LOG_DIR=""
-unset LOG_SEQUENCE_COUNTER
-unset LOG_SEQUENCE_VALUE
-
-build_log_file_path planner plan
-path_one="$LOG_FILE_PATH"
-build_log_file_path planner plan
-path_two="$LOG_FILE_PATH"
-assert_equals "${ARTIFACT_ROOT}/branches/${BRANCH_PATH}/logs/${FIXED_TIMESTAMP}-01/planner-plan-001.log" "$path_one" "first planner log path"
-assert_equals "${ARTIFACT_ROOT}/branches/${BRANCH_PATH}/logs/${FIXED_TIMESTAMP}-01/planner-plan-002.log" "$path_two" "second planner log path"
-
-unset ARTIFACT_ROOT
-DEFAULT_ROOT_TEST_SUFFIX="${RANDOM}"
-BRANCH="feature/default-root-logging-test-${DEFAULT_ROOT_TEST_SUFFIX}"
-BRANCH_PATH="feature_default-root-logging-test-${DEFAULT_ROOT_TEST_SUFFIX}"
 LOG_CONTEXT_READY=false
 LOG_DIR=""
 LOG_RUN_DIR=""
@@ -115,14 +98,34 @@ RUN_COUNTER=""
 unset LOG_SEQUENCE_COUNTER
 unset LOG_SEQUENCE_VALUE
 
+resolved_branch_path="$(resolve_branch_artifact_slug "$BRANCH" "$ARTIFACT_ROOT")"
+build_log_file_path planner plan
+path_one="$LOG_FILE_PATH"
+build_log_file_path planner plan
+path_two="$LOG_FILE_PATH"
+assert_equals "${ARTIFACT_ROOT}/branches/${resolved_branch_path}/logs/${FIXED_TIMESTAMP}-01/planner-plan-001.log" "$path_one" "first planner log path"
+assert_equals "${ARTIFACT_ROOT}/branches/${resolved_branch_path}/logs/${FIXED_TIMESTAMP}-01/planner-plan-002.log" "$path_two" "second planner log path"
+
+unset ARTIFACT_ROOT
+DEFAULT_ROOT_TEST_SUFFIX="${RANDOM}"
+BRANCH="feature/default-root-logging-test-${DEFAULT_ROOT_TEST_SUFFIX}"
+LOG_CONTEXT_READY=false
+LOG_DIR=""
+LOG_RUN_DIR=""
+RUN_TIMESTAMP_UTC=""
+RUN_COUNTER=""
+unset LOG_SEQUENCE_COUNTER
+unset LOG_SEQUENCE_VALUE
+
+resolved_default_branch_path_for_logs="$(resolve_branch_artifact_slug "$BRANCH" "$ARTIFACT_ROOT_DEFAULT")"
 build_log_file_path planner plan
 default_path_one="$LOG_FILE_PATH"
-assert_equals "${ARTIFACT_ROOT_DEFAULT}/branches/${BRANCH_PATH}/logs/${FIXED_TIMESTAMP}-01/planner-plan-001.log" "$default_path_one" "default root first planner log path"
+assert_equals "${ARTIFACT_ROOT_DEFAULT}/branches/${resolved_default_branch_path_for_logs}/logs/${FIXED_TIMESTAMP}-01/planner-plan-001.log" "$default_path_one" "default root first planner log path"
 
 ARTIFACT_ROOT="${TMP_DIR}/artifacts"
 BRANCH="gh/16"
-BRANCH_PATH="gh_16"
-mkdir -p "${ARTIFACT_ROOT}/branches/${BRANCH_PATH}/logs/${FIXED_TIMESTAMP}-01"
+resolved_collision_branch_path="$(resolve_branch_artifact_slug "$BRANCH" "$ARTIFACT_ROOT")"
+mkdir -p "${ARTIFACT_ROOT}/branches/${resolved_collision_branch_path}/logs/${FIXED_TIMESTAMP}-01"
 LOG_CONTEXT_READY=false
 LOG_DIR=""
 LOG_RUN_DIR=""
@@ -133,11 +136,11 @@ unset LOG_SEQUENCE_VALUE
 
 build_log_file_path planner plan
 collision_path="$LOG_FILE_PATH"
-assert_equals "${ARTIFACT_ROOT}/branches/${BRANCH_PATH}/logs/${FIXED_TIMESTAMP}-02/planner-plan-001.log" "$collision_path" "collision increments run folder counter"
+assert_equals "${ARTIFACT_ROOT}/branches/${resolved_collision_branch_path}/logs/${FIXED_TIMESTAMP}-02/planner-plan-001.log" "$collision_path" "collision increments run folder counter"
 
 ARTIFACT_ROOT="${TMP_DIR}/artifacts"
 BRANCH="gh/18"
-BRANCH_PATH="gh_18"
+BRANCH_PATH="$(resolve_branch_artifact_slug "$BRANCH" "$ARTIFACT_ROOT")"
 mkdir_race_injected=false
 mkdir() {
   local target="${@: -1}"
@@ -173,7 +176,6 @@ assert_equals "${ARTIFACT_ROOT_DEFAULT}/branches/${resolved_default_branch_path}
 # Restore override-backed state for subsequent log assertions.
 ARTIFACT_ROOT="${TMP_DIR}/artifacts"
 BRANCH="gh/17"
-BRANCH_PATH="gh_17"
 LOG_CONTEXT_READY=false
 LOG_DIR=""
 LOG_RUN_DIR=""
@@ -186,6 +188,7 @@ CODER_MODEL=""
 PLANNER_MODEL=""
 REVIEWER_MODEL=""
 initialize_runtime_state
+resolved_role_branch_path="$(resolve_branch_artifact_slug "$BRANCH" "$ARTIFACT_ROOT")"
 
 run_cli() {
   echo "stdout:$*"
@@ -198,13 +201,13 @@ REVIEWER_CLI="claude"
 
 VERBOSE=false
 run_role_action planner plan false >/dev/null
-planner_log="${ARTIFACT_ROOT}/branches/${BRANCH_PATH}/logs/${FIXED_TIMESTAMP}-01/planner-plan-001.log"
+planner_log="${ARTIFACT_ROOT}/branches/${resolved_role_branch_path}/logs/${FIXED_TIMESTAMP}-01/planner-plan-001.log"
 assert_file_exists "$planner_log" "planner log exists"
 assert_file_contains "$planner_log" "stdout:claude" "planner log stores command output"
 
 REVIEW_LOOP_ATTEMPT=1
 run_role_action reviewer code-review true >/dev/null
-reviewer_log="${ARTIFACT_ROOT}/branches/${BRANCH_PATH}/logs/${FIXED_TIMESTAMP}-01/reviewer-code-review-loop-001.log"
+reviewer_log="${ARTIFACT_ROOT}/branches/${resolved_role_branch_path}/logs/${FIXED_TIMESTAMP}-01/reviewer-code-review-loop-001.log"
 assert_file_exists "$reviewer_log" "review loop log exists"
 assert_file_contains "$reviewer_log" "stdout:claude" "review loop log stores command output"
 assert_equals "$(dirname "$planner_log")" "$(dirname "$reviewer_log")" "one invocation shares run folder"
@@ -222,7 +225,30 @@ review_loop "Code" "$review_file" run_update_stub run_review_stub "Coder" >/dev/
 assert_equals "0" "${REVIEW_LOOP_ATTEMPT}" "review loop resets attempt state"
 
 run_role_action reviewer code-review false >/dev/null
-initial_review_log="${ARTIFACT_ROOT}/branches/${BRANCH_PATH}/logs/${FIXED_TIMESTAMP}-01/reviewer-code-review-001.log"
+initial_review_log="${ARTIFACT_ROOT}/branches/${resolved_role_branch_path}/logs/${FIXED_TIMESTAMP}-01/reviewer-code-review-001.log"
 assert_file_exists "$initial_review_log" "post-loop initial review log exists"
+
+ARTIFACT_ROOT="${TMP_DIR}/artifacts"
+BRANCH="feature/legacy-compat-logging"
+legacy_branch_path="$(legacy_branch_to_slug "$BRANCH")"
+hashed_branch_path="$(branch_to_slug "$BRANCH")"
+mkdir -p "${ARTIFACT_ROOT}/branches/${legacy_branch_path}"
+printf '%s\n' 'legacy plan' > "${ARTIFACT_ROOT}/branches/${legacy_branch_path}/plan.md"
+mkdir -p "${ARTIFACT_ROOT}/branches/${hashed_branch_path}"
+BRANCH_PATH="$hashed_branch_path"
+LOG_CONTEXT_READY=false
+LOG_DIR=""
+LOG_RUN_DIR=""
+RUN_TIMESTAMP_UTC=""
+RUN_COUNTER=""
+unset LOG_SEQUENCE_COUNTER
+unset LOG_SEQUENCE_VALUE
+
+build_log_file_path planner plan
+legacy_compat_log_path="$LOG_FILE_PATH"
+assert_equals "${ARTIFACT_ROOT}/branches/${legacy_branch_path}/logs/${FIXED_TIMESTAMP}-01/planner-plan-001.log" "$legacy_compat_log_path" "logging follows resolved legacy artifact path"
+if [[ -d "${ARTIFACT_ROOT}/branches/${hashed_branch_path}/logs/${FIXED_TIMESTAMP}-01" ]]; then
+  fail "logging should not create hashed logs-only run directory when legacy path is selected"
+fi
 
 echo 'logging behavior tests passed'
