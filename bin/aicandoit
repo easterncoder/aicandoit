@@ -625,10 +625,14 @@ ensure_logging_context() {
       RUN_COUNTER="$(printf '%02d' "$run_counter")"
       candidate_run_dir="${logs_root}/${RUN_TIMESTAMP_UTC}-${RUN_COUNTER}"
 
-      if [[ ! -d "$candidate_run_dir" ]]; then
-        mkdir -p "$candidate_run_dir"
+      if mkdir "$candidate_run_dir" 2>/dev/null; then
         LOG_RUN_DIR="$candidate_run_dir"
         break
+      fi
+
+      if [[ ! -d "$candidate_run_dir" ]]; then
+        echo "error: failed to initialize log run directory: $candidate_run_dir" >&2
+        return 1
       fi
 
       run_counter=$((run_counter + 1))

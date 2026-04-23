@@ -104,8 +104,9 @@ assert_equals "${ARTIFACT_ROOT}/branches/${BRANCH_PATH}/logs/${FIXED_TIMESTAMP}-
 assert_equals "${ARTIFACT_ROOT}/branches/${BRANCH_PATH}/logs/${FIXED_TIMESTAMP}-01/planner-plan-002.log" "$path_two" "second planner log path"
 
 unset ARTIFACT_ROOT
-BRANCH="feature/default-root-logging-test"
-BRANCH_PATH="feature_default-root-logging-test"
+DEFAULT_ROOT_TEST_SUFFIX="${RANDOM}"
+BRANCH="feature/default-root-logging-test-${DEFAULT_ROOT_TEST_SUFFIX}"
+BRANCH_PATH="feature_default-root-logging-test-${DEFAULT_ROOT_TEST_SUFFIX}"
 LOG_CONTEXT_READY=false
 LOG_DIR=""
 LOG_RUN_DIR=""
@@ -133,6 +134,35 @@ unset LOG_SEQUENCE_VALUE
 build_log_file_path planner plan
 collision_path="$LOG_FILE_PATH"
 assert_equals "${ARTIFACT_ROOT}/branches/${BRANCH_PATH}/logs/${FIXED_TIMESTAMP}-02/planner-plan-001.log" "$collision_path" "collision increments run folder counter"
+
+ARTIFACT_ROOT="${TMP_DIR}/artifacts"
+BRANCH="gh/18"
+BRANCH_PATH="gh_18"
+mkdir_race_injected=false
+mkdir() {
+  local target="${@: -1}"
+  local race_target="${ARTIFACT_ROOT}/branches/${BRANCH_PATH}/logs/${FIXED_TIMESTAMP}-01"
+
+  if [[ "$mkdir_race_injected" == false && "$#" -eq 1 && "$target" == "$race_target" ]]; then
+    command mkdir -p "$target"
+    mkdir_race_injected=true
+    return 1
+  fi
+
+  command mkdir "$@"
+}
+LOG_CONTEXT_READY=false
+LOG_DIR=""
+LOG_RUN_DIR=""
+RUN_TIMESTAMP_UTC=""
+RUN_COUNTER=""
+unset LOG_SEQUENCE_COUNTER
+unset LOG_SEQUENCE_VALUE
+
+build_log_file_path planner plan
+race_path="$LOG_FILE_PATH"
+assert_equals "${ARTIFACT_ROOT}/branches/${BRANCH_PATH}/logs/${FIXED_TIMESTAMP}-02/planner-plan-001.log" "$race_path" "atomic run folder claim skips race-created counter"
+unset -f mkdir
 
 unset ARTIFACT_ROOT
 resolve_artifact_paths
