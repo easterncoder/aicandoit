@@ -760,15 +760,28 @@ prompt_required_for_mode() {
   [[ "$mode" == "all" || "$mode" == "plan" ]]
 }
 
+# Join parsed prompt arguments into a single string only at consumer boundaries.
+join_prompt_args() {
+  if [[ -v PROMPT_ARGS ]]; then
+    printf '%s\n' "${PROMPT_ARGS[*]}"
+    return 0
+  fi
+
+  # Preserve compatibility for sourced tests that still set PROMPT directly.
+  printf '%s\n' "${PROMPT:-}"
+}
+
 # Resolve the final target branch before checkout or worktree handling.
 resolve_target_branch_name() {
   local current_branch=""
   local current_branch_path=""
   local repo_root=""
+  local prompt=""
 
   if [[ "$AUTO_BRANCH" == true ]]; then
     repo_root="$(resolve_repo_root)"
-    BRANCH="$(resolve_auto_branch_name "$PROMPT" "$repo_root")"
+    prompt="$(join_prompt_args)"
+    BRANCH="$(resolve_auto_branch_name "$prompt" "$repo_root")"
     return 0
   fi
 
@@ -921,6 +934,9 @@ run_role_action() {
   local cursor_args_name=""
   local prompt=""
   local codex_prompt=""
+  local prompt_text=""
+
+  prompt_text="$(join_prompt_args)"
 
   case "$role" in
     planner)
@@ -954,8 +970,8 @@ run_role_action() {
 
   case "$action" in
     plan)
-      prompt="/plan-it $PROMPT"
-      codex_prompt="\$plan-it $PROMPT"
+      prompt="/plan-it $prompt_text"
+      codex_prompt="\$plan-it $prompt_text"
       ;;
     plan-update)
       prompt="/plan-update"
@@ -1223,11 +1239,15 @@ parse_args() {
     esac
   done
 
-  PROMPT="$*"
+  PROMPT_ARGS=("$@")
 }
 
 # Validate the parsed arguments before running the workflow.
 validate_args() {
+  local prompt=""
+
+  prompt="$(join_prompt_args)"
+
   if [[ -z "$PLANNER" ]]; then
     PLANNER="$CODER"
   fi
@@ -1295,7 +1315,7 @@ validate_args() {
     MODE="all"
   fi
 
-  if [[ -z "$PROMPT" ]]; then
+  if [[ -z "$prompt" ]]; then
     if [[ "$AUTO_BRANCH" == true ]] || prompt_required_for_mode "$MODE"; then
       echo "error: prompt is required" >&2
       usage
@@ -1323,10 +1343,14 @@ check_dependencies() {
 
 # Print the chosen workflow configuration.
 print_configuration() {
+  local prompt=""
+
+  prompt="$(join_prompt_args)"
+
   echo "Coder:    ${CODER_CLI}${CODER_MODEL:+ (model: $CODER_MODEL)}"
   echo "Planner:  ${PLANNER_CLI}${PLANNER_MODEL:+ (model: $PLANNER_MODEL)}"
   echo "Reviewer: ${REVIEWER_CLI}${REVIEWER_MODEL:+ (model: $REVIEWER_MODEL)}"
-  echo "Prompt:   $PROMPT"
+  echo "Prompt:   $prompt"
   echo
 }
 
@@ -1509,6 +1533,7 @@ main() {
   VERBOSE=false
   USE_WORKTREE=false
   PROMPT=""
+  PROMPT_ARGS=()
 
   echo "AI Can Do It"
   echo
