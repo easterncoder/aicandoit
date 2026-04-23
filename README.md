@@ -13,8 +13,8 @@ AI Can Do It is a unified Bash launcher that runs a plan-and-implement loop usin
 `aicandoit` follows this control flow:
 
 1. Accept `--branch <name>`, `--current-branch`, or `--auto-branch` plus a prompt. When all three are omitted, infer current-branch mode when `.aicandoit/branches/<current-branch-slug>` already exists.
-2. When `--auto-branch` is passed, inspect the prompt in conservative order: GitHub issue references such as `gh issue 24`, then readable repo-local text files such as `README.md`, then the raw prompt text.
-3. Resolve a deterministic branch name before checkout or worktree setup. Existing local branch names receive a numeric suffix such as `-2`.
+2. When `--auto-branch` is passed, assemble context in deterministic order: raw prompt text, GitHub issue references, GitHub PR references, then readable repo-local file snippets.
+3. Ask the selected coder CLI for exactly one Conventional Commit style branch name before checkout or worktree setup. Existing local branch names still receive numeric suffixes such as `-2`.
 4. Switch to the named branch when it exists, create it when it does not, or use the current branch when `--current-branch` is passed or inferred.
 5. If `--worktree` is passed with `--branch` or `--auto-branch`, create or reuse a deterministic branch worktree under `<repo-root>/.aicandoit/branches/<branch-slug>/worktree` and run the workflow from that worktree.
 6. Run the planner CLI with its workflow skill prefix: `/plan-it` for Claude, Cursor, and Gemini, `$plan-it` for Codex.
@@ -42,7 +42,7 @@ The retry loop is controlled by:
 | `--verbose` | | No | Flag only; when set, CLI tool output is shown with stderr merged into stdout |
 | `--branch` | `-B` | Unless `--current-branch`, `--auto-branch`, or branch inference succeeds | Branch name to switch to or create |
 | `--current-branch` | | Unless `--branch`, `--auto-branch`, or branch inference succeeds | Use the current git branch |
-| `--auto-branch` | | No | Derive a new branch name from issue references, file references, or prompt text |
+| `--auto-branch` | | No | Ask the selected coder CLI to generate a strict Conventional Commit style branch name |
 
 The `cli/model` format passes `--model <model>` to the chosen CLI. When no model is specified the CLI uses its own default. For `cursor`, the built-in default is `gpt-5.3-codex-high`.
 The `--mode` flag runs only the selected stage. `plan-review` requires an existing branch plan and creates `plan-review.md` on its first review pass when needed. `code-review` requires that you have already run the matching `code` stage on the same branch.
@@ -54,13 +54,14 @@ In non-worktree mode, switching to a different branch or creating a new branch r
 
 ## Auto Branch Rules
 
-`--auto-branch` resolves branch names in this order:
+`--auto-branch` uses a strict AI preflight step:
 
-1. GitHub issue references such as `gh issue 24` or `issue 24`. When the issue title is available, the generated branch looks like `auto/issue-24-short-title`. If GitHub access fails, the fallback stays deterministic and still uses `auto/issue-24`.
-2. Repo-local file references such as `README.md` or `./docs/guide.txt`. Only readable text files under the current repository root are considered. Directories, binary files, and files above `AUTO_BRANCH_FILE_MAX_BYTES` are ignored.
-3. Raw prompt text. This is the fallback when no issue or valid file source resolves.
-
-For file-based resolution, the launcher reads only the first `AUTO_BRANCH_FILE_SNIPPET_BYTES` bytes and uses the first non-empty line together with the basename to keep the slug stable and bounded.
+1. Build branch-name context in this order: raw prompt text, issue references (`gh issue 24`, `issue 24`), PR references (`gh pr 7`, `pr 7`, `pull request 7`), then repo-local file snippets for explicitly mentioned paths.
+2. For file snippets, only repo-local readable text files are included, repeated paths are deduplicated, and each snippet is capped at the first `AUTO_BRANCH_CONTEXT_MAX_LINES` lines or `AUTO_BRANCH_CONTEXT_MAX_BYTES` bytes, whichever comes first.
+3. Call the selected coder CLI once and require exactly one output line in `<type>/<slug>` form.
+4. Allowed types are `build`, `chore`, `ci`, `docs`, `feat`, `fix`, `perf`, `refactor`, `revert`, `style`, and `test`.
+5. Invalid output fails fast with no deterministic fallback.
+6. Existing local branch name collisions still receive numeric suffixes (`-2`, `-3`, and so on).
 
 ## Requirements
 

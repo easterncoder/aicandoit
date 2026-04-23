@@ -7,10 +7,9 @@
 set -euo pipefail
 
 _CURSOR_DEFAULT="gpt-5.3-codex-high"
-AUTO_BRANCH_PREFIX="auto"
-AUTO_BRANCH_FILE_MAX_BYTES="${AUTO_BRANCH_FILE_MAX_BYTES:-65536}"
-AUTO_BRANCH_FILE_SNIPPET_BYTES="${AUTO_BRANCH_FILE_SNIPPET_BYTES:-512}"
-AUTO_BRANCH_NAME_MAX="${AUTO_BRANCH_NAME_MAX:-48}"
+AUTO_BRANCH_CONTEXT_MAX_LINES="${AUTO_BRANCH_CONTEXT_MAX_LINES:-120}"
+AUTO_BRANCH_CONTEXT_MAX_BYTES="${AUTO_BRANCH_CONTEXT_MAX_BYTES:-8192}"
+AUTO_BRANCH_TYPES="build chore ci docs feat fix perf refactor revert style test"
 ARTIFACT_ROOT_DEFAULT=".aicandoit"
 
 # Print usage and exit.
@@ -270,25 +269,6 @@ resolve_repo_root() {
   )
 }
 
-# Reduce arbitrary text to a branch-safe slug component.
-sanitize_branch_component() {
-  local value="$1"
-  local limit="${2:-$AUTO_BRANCH_NAME_MAX}"
-  local sanitized=""
-
-  sanitized="$(printf '%s' "$value" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//; s/-{2,}/-/g')"
-  if [[ -z "$sanitized" ]]; then
-    sanitized="item"
-  fi
-
-  sanitized="$(printf '%s' "$sanitized" | cut -c1-"$limit" | sed -E 's/-+$//')"
-  if [[ -z "$sanitized" ]]; then
-    sanitized="item"
-  fi
-
-  printf '%s\n' "$sanitized"
-}
-
 # Append a deterministic numeric suffix when a local branch already exists.
 resolve_unique_local_branch_name() {
   local candidate="$1"
@@ -301,60 +281,6 @@ resolve_unique_local_branch_name() {
   done
 
   printf '%s\n' "$unique"
-}
-
-# Extract the first issue number reference from a prompt.
-extract_issue_number_from_prompt() {
-  local prompt="$1"
-
-  if [[ "$prompt" =~ (^|[^[:alnum:]])gh[[:space:]]+issue[[:space:]]+([0-9]+)([^[:digit:]]|$) ]]; then
-    printf '%s\n' "${BASH_REMATCH[2]}"
-    return 0
-  fi
-
-  if [[ "$prompt" =~ (^|[^[:alnum:]])issue[[:space:]]+([0-9]+)([^[:digit:]]|$) ]]; then
-    printf '%s\n' "${BASH_REMATCH[2]}"
-    return 0
-  fi
-
-  return 1
-}
-
-# Resolve an issue title from a fixture variable or gh.
-fetch_issue_title() {
-  local issue_number="$1"
-  local fixture_var="AICANDOIT_ISSUE_TITLE_${issue_number}"
-  local fixture_value="${!fixture_var-}"
-  local title=""
-
-  if [[ -n "$fixture_value" ]]; then
-    printf '%s\n' "$fixture_value"
-    return 0
-  fi
-
-  title="$(gh issue view "$issue_number" --json title --jq .title 2>/dev/null || true)"
-  if [[ -n "$title" ]]; then
-    printf '%s\n' "$title"
-    return 0
-  fi
-
-  return 1
-}
-
-# Build an issue-derived branch name.
-build_issue_branch_name() {
-  local issue_number="$1"
-  local title="$2"
-  local title_slug=""
-  local candidate=""
-
-  title_slug="$(sanitize_branch_component "$title" 36)"
-  candidate="${AUTO_BRANCH_PREFIX}/issue-${issue_number}"
-  if [[ -n "$title_slug" && "$title_slug" != "item" ]]; then
-    candidate="${candidate}-${title_slug}"
-  fi
-
-  printf '%s\n' "$candidate"
 }
 
 # Trim prompt token wrappers before testing it as a file path.
@@ -391,6 +317,18 @@ looks_like_path_candidate() {
   [[ "$token" == */* || "$token" == .* || "$token" == *.* ]]
 }
 
+# Normalize a prompt token for issue or PR reference parsing.
+normalize_prompt_reference_token() {
+  local token="$1"
+  local normalized=""
+
+  normalized="$(normalize_prompt_path_token "$token")"
+  normalized="$(printf '%s' "$normalized" | tr '[:upper:]' '[:lower:]')"
+  normalized="${normalized#\#}"
+
+  printf '%s\n' "$normalized"
+}
+
 # Resolve a prompt file candidate to a readable repo-local file.
 resolve_repo_local_file() {
   local repo_root="$1"
@@ -413,10 +351,89 @@ resolve_repo_local_file() {
   printf '%s\n' "$resolved_path"
 }
 
-# Find the first repo-local file reference inside a prompt.
-extract_prompt_file_reference() {
+# Collect issue references from prompt text in prompt order.
+extract_issue_numbers_from_prompt() {
+  local prompt="$1"
+  local tokens=()
+  local previous=""
+  local first=""
+  local second=""
+  local third=""
+  local i=0
+
+  read -r -a tokens <<< "$prompt"
+  for i in "${!tokens[@]}"; do
+    previous=""
+    first="$(normalize_prompt_reference_token "${tokens[$i]}")"
+    second=""
+    third=""
+
+    if (( i > 0 )); then
+      previous="$(normalize_prompt_reference_token "${tokens[$((i - 1))]}")"
+    fi
+    if (( i + 1 < ${#tokens[@]} )); then
+      second="$(normalize_prompt_reference_token "${tokens[$((i + 1))]}")"
+    fi
+    if (( i + 2 < ${#tokens[@]} )); then
+      third="$(normalize_prompt_reference_token "${tokens[$((i + 2))]}")"
+    fi
+
+    if [[ "$first" == "gh" && "$second" == "issue" && "$third" =~ ^[0-9]+$ ]]; then
+      printf '%s\n' "$third"
+      continue
+    fi
+    if [[ "$first" == "issue" && "$second" =~ ^[0-9]+$ && "$previous" != "gh" ]]; then
+      printf '%s\n' "$second"
+    fi
+  done
+}
+
+# Collect PR references from prompt text in prompt order.
+extract_pr_numbers_from_prompt() {
+  local prompt="$1"
+  local tokens=()
+  local previous=""
+  local first=""
+  local second=""
+  local third=""
+  local i=0
+
+  read -r -a tokens <<< "$prompt"
+  for i in "${!tokens[@]}"; do
+    previous=""
+    first="$(normalize_prompt_reference_token "${tokens[$i]}")"
+    second=""
+    third=""
+
+    if (( i > 0 )); then
+      previous="$(normalize_prompt_reference_token "${tokens[$((i - 1))]}")"
+    fi
+    if (( i + 1 < ${#tokens[@]} )); then
+      second="$(normalize_prompt_reference_token "${tokens[$((i + 1))]}")"
+    fi
+    if (( i + 2 < ${#tokens[@]} )); then
+      third="$(normalize_prompt_reference_token "${tokens[$((i + 2))]}")"
+    fi
+
+    if [[ "$first" == "gh" && "$second" == "pr" && "$third" =~ ^[0-9]+$ ]]; then
+      printf '%s\n' "$third"
+      continue
+    fi
+    if [[ "$first" == "pr" && "$second" =~ ^[0-9]+$ && "$previous" != "gh" ]]; then
+      printf '%s\n' "$second"
+      continue
+    fi
+    if [[ "$first" == "pull" && "$second" == "request" && "$third" =~ ^[0-9]+$ && "$previous" != "gh" ]]; then
+      printf '%s\n' "$third"
+    fi
+  done
+}
+
+# Collect repo-local file references from prompt text in prompt order with dedupe.
+extract_prompt_file_references() {
   local prompt="$1"
   local repo_root="$2"
+  local -A seen=()
   local token=""
   local candidate=""
   local resolved_path=""
@@ -427,22 +444,11 @@ extract_prompt_file_reference() {
       continue
     fi
     resolved_path="$(resolve_repo_local_file "$repo_root" "$candidate" 2>/dev/null || true)"
-    if [[ -n "$resolved_path" ]]; then
+    if [[ -n "$resolved_path" && -z "${seen[$resolved_path]:-}" ]]; then
+      seen["$resolved_path"]=1
       printf '%s\n' "$resolved_path"
-      return 0
     fi
   done
-
-  return 1
-}
-
-# Enforce the maximum readable file size for auto-branch resolution.
-file_within_auto_branch_limit() {
-  local path="$1"
-  local size="0"
-
-  size="$(wc -c < "$path")"
-  [[ "$size" -le "$AUTO_BRANCH_FILE_MAX_BYTES" ]]
 }
 
 # Detect whether a file should be treated as text.
@@ -456,82 +462,251 @@ is_probably_text_file() {
 read_auto_branch_file_snippet() {
   local path="$1"
 
-  head -c "$AUTO_BRANCH_FILE_SNIPPET_BYTES" "$path"
+  head -n "$AUTO_BRANCH_CONTEXT_MAX_LINES" "$path" | head -c "$AUTO_BRANCH_CONTEXT_MAX_BYTES"
 }
 
-# Select the first non-empty line from a file snippet.
-extract_file_context_line() {
-  local snippet="$1"
-  local line=""
+# Resolve issue metadata from fixture variables or gh.
+fetch_issue_context_line() {
+  local issue_number="$1"
+  local fixture_var="AICANDOIT_ISSUE_TITLE_${issue_number}"
+  local fixture_value="${!fixture_var-}"
+  local title=""
 
-  while IFS= read -r line; do
-    line="$(printf '%s' "$line" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
-    if [[ -n "$line" ]]; then
-      printf '%s\n' "$line"
-      return 0
-    fi
-  done <<< "$snippet"
-
-  return 1
-}
-
-# Build a file-derived branch name from basename and leading text.
-build_file_branch_name() {
-  local path="$1"
-  local snippet="$2"
-  local basename_slug=""
-  local context_line=""
-  local context_slug=""
-  local candidate=""
-
-  basename_slug="$(sanitize_branch_component "$(basename "$path")" 18)"
-  context_line="$(extract_file_context_line "$snippet" 2>/dev/null || true)"
-  context_slug="$(sanitize_branch_component "$context_line" 28)"
-  candidate="${AUTO_BRANCH_PREFIX}/${basename_slug}"
-
-  if [[ -n "$context_line" && "$context_slug" != "item" ]]; then
-    candidate="${candidate}-${context_slug}"
+  if [[ -n "$fixture_value" ]]; then
+    printf '#%s: %s\n' "$issue_number" "$fixture_value"
+    return 0
   fi
 
-  printf '%s\n' "$candidate"
+  if ! command -v gh >/dev/null 2>&1; then
+    echo "error: gh not found in PATH; cannot resolve issue #$issue_number for --auto-branch context" >&2
+    return 1
+  fi
+
+  if ! title="$(gh issue view "$issue_number" --json title --jq .title 2>/dev/null)"; then
+    echo "error: failed to fetch issue #$issue_number via gh for --auto-branch context" >&2
+    return 1
+  fi
+  if [[ -z "$title" ]]; then
+    echo "error: issue #$issue_number did not return a title for --auto-branch context" >&2
+    return 1
+  fi
+
+  printf '#%s: %s\n' "$issue_number" "$title"
 }
 
-# Build a prompt-derived fallback branch name.
-build_prompt_branch_name() {
+# Resolve PR metadata from fixture variables or gh.
+fetch_pr_context_line() {
+  local pr_number="$1"
+  local fixture_var="AICANDOIT_PR_TITLE_${pr_number}"
+  local fixture_value="${!fixture_var-}"
+  local title=""
+
+  if [[ -n "$fixture_value" ]]; then
+    printf '#%s: %s\n' "$pr_number" "$fixture_value"
+    return 0
+  fi
+
+  if ! command -v gh >/dev/null 2>&1; then
+    echo "error: gh not found in PATH; cannot resolve PR #$pr_number for --auto-branch context" >&2
+    return 1
+  fi
+
+  if ! title="$(gh pr view "$pr_number" --json title --jq .title 2>/dev/null)"; then
+    echo "error: failed to fetch PR #$pr_number via gh for --auto-branch context" >&2
+    return 1
+  fi
+  if [[ -z "$title" ]]; then
+    echo "error: PR #$pr_number did not return a title for --auto-branch context" >&2
+    return 1
+  fi
+
+  printf '#%s: %s\n' "$pr_number" "$title"
+}
+
+# Convert an absolute path to repo-relative form when possible.
+to_repo_relative_path() {
+  local path="$1"
+  local repo_root="$2"
+
+  if [[ "$path" == "$repo_root" ]]; then
+    printf '.\n'
+    return 0
+  fi
+  if [[ "$path" == "$repo_root"/* ]]; then
+    printf '%s\n' "${path#"$repo_root/"}"
+    return 0
+  fi
+
+  printf '%s\n' "$path"
+}
+
+# Build the deterministic context block sent to the coder CLI for branch naming.
+build_auto_branch_context() {
   local prompt="$1"
-  local prompt_slug=""
+  local repo_root="$2"
+  local context=""
+  local issue_number=""
+  local pr_number=""
+  local file_path=""
+  local relative_path=""
+  local snippet=""
 
-  prompt_slug="$(sanitize_branch_component "$prompt" 48)"
-  printf '%s/%s\n' "$AUTO_BRANCH_PREFIX" "$prompt_slug"
+  context+="RAW PROMPT:"$'\n'
+  context+="$prompt"$'\n'
+
+  context+=$'\n'"ISSUES:"$'\n'
+  while IFS= read -r issue_number; do
+    [[ -n "$issue_number" ]] || continue
+    context+="$(fetch_issue_context_line "$issue_number")"$'\n'
+  done < <(extract_issue_numbers_from_prompt "$prompt")
+
+  context+=$'\n'"PRS:"$'\n'
+  while IFS= read -r pr_number; do
+    [[ -n "$pr_number" ]] || continue
+    context+="$(fetch_pr_context_line "$pr_number")"$'\n'
+  done < <(extract_pr_numbers_from_prompt "$prompt")
+
+  context+=$'\n'"FILES:"$'\n'
+  while IFS= read -r file_path; do
+    [[ -n "$file_path" ]] || continue
+    if ! is_probably_text_file "$file_path"; then
+      continue
+    fi
+
+    relative_path="$(to_repo_relative_path "$file_path" "$repo_root")"
+    snippet="$(read_auto_branch_file_snippet "$file_path")"
+    context+="[${relative_path}]"$'\n'
+    context+="$snippet"$'\n'
+    context+="[/${relative_path}]"$'\n'
+  done < <(extract_prompt_file_references "$prompt" "$repo_root")
+
+  printf '%s' "$context"
 }
 
-# Resolve a deterministic branch name from issue, file, or prompt text.
+# Build the strict instruction prompt used for AI auto-branch generation.
+build_auto_branch_generation_prompt() {
+  local context="$1"
+
+  cat <<EOF
+Return exactly one line containing only a git branch name in this format: <type>/<slug>
+Allowed <type> values: ${AUTO_BRANCH_TYPES}
+Rules:
+- Output only the branch name, with no explanation
+- Use lowercase only
+- <slug> must be kebab-case using [a-z0-9-]
+- Do not include spaces
+
+Context:
+${context}
+EOF
+}
+
+# Invoke the selected coder CLI once to generate an auto branch name.
+generate_ai_auto_branch_name() {
+  local prompt="$1"
+
+  case "$CODER_CLI" in
+    claude)
+      if ! claude "${CODER_CLAUDE_MODEL[@]}" -p "$prompt"; then
+        echo "error: coder CLI failed while generating --auto-branch name" >&2
+        return 1
+      fi
+      ;;
+    codex)
+      if ! codex $CODEX_BASE_ARGS "${CODER_CODEX_MODEL[@]}" exec "$prompt"; then
+        echo "error: coder CLI failed while generating --auto-branch name" >&2
+        return 1
+      fi
+      ;;
+    cursor)
+      if ! cursor-agent "${CODER_CURSOR_ARGS[@]}" "$prompt"; then
+        echo "error: coder CLI failed while generating --auto-branch name" >&2
+        return 1
+      fi
+      ;;
+    gemini)
+      if ! gemini "${CODER_GEMINI_MODEL[@]}" --prompt "$prompt"; then
+        echo "error: coder CLI failed while generating --auto-branch name" >&2
+        return 1
+      fi
+      ;;
+  esac
+}
+
+# Validate a model-generated branch name with strict conventional-commit constraints.
+validate_ai_auto_branch_name() {
+  local branch="$1"
+  local type=""
+  local slug=""
+  local allowed_type=false
+  local allowed=""
+
+  if [[ -z "$branch" ]]; then
+    echo "error: coder returned empty output for --auto-branch" >&2
+    return 1
+  fi
+  if [[ "$branch" == *$'\n'* ]]; then
+    echo "error: coder returned multiline output for --auto-branch; expected one line" >&2
+    return 1
+  fi
+  if [[ "$branch" =~ ^[[:space:]]+$ ]]; then
+    echo "error: coder returned whitespace-only output for --auto-branch" >&2
+    return 1
+  fi
+  if [[ "$branch" != */* ]]; then
+    echo "error: invalid --auto-branch output '$branch'; expected <type>/<slug>" >&2
+    return 1
+  fi
+
+  type="${branch%%/*}"
+  slug="${branch#*/}"
+
+  if [[ -z "$type" || -z "$slug" || "$slug" == */* ]]; then
+    echo "error: invalid --auto-branch output '$branch'; expected <type>/<slug>" >&2
+    return 1
+  fi
+  if [[ "$type" != "$(printf '%s' "$type" | tr '[:upper:]' '[:lower:]')" ]]; then
+    echo "error: invalid --auto-branch type '$type'; type must be lowercase" >&2
+    return 1
+  fi
+
+  for allowed in $AUTO_BRANCH_TYPES; do
+    if [[ "$type" == "$allowed" ]]; then
+      allowed_type=true
+      break
+    fi
+  done
+  if [[ "$allowed_type" != true ]]; then
+    echo "error: invalid --auto-branch type '$type'; allowed types: $AUTO_BRANCH_TYPES" >&2
+    return 1
+  fi
+
+  if [[ ! "$slug" =~ ^[a-z0-9]+(-[a-z0-9]+)*$ ]]; then
+    echo "error: invalid --auto-branch slug '$slug'; expected lowercase kebab-case" >&2
+    return 1
+  fi
+
+  return 0
+}
+
+# Resolve an AI-generated branch name from prompt context and enforce local uniqueness.
 resolve_auto_branch_name() {
   local prompt="$1"
   local repo_root="$2"
-  local issue_number=""
-  local issue_title=""
-  local file_path=""
-  local snippet=""
+  local context=""
+  local model_prompt=""
   local candidate=""
 
-  issue_number="$(extract_issue_number_from_prompt "$prompt" 2>/dev/null || true)"
-  if [[ -n "$issue_number" ]]; then
-    issue_title="$(fetch_issue_title "$issue_number" 2>/dev/null || true)"
-    candidate="$(build_issue_branch_name "$issue_number" "$issue_title")"
-    resolve_unique_local_branch_name "$candidate"
-    return 0
+  if ! context="$(build_auto_branch_context "$prompt" "$repo_root")"; then
+    return 1
   fi
-
-  file_path="$(extract_prompt_file_reference "$prompt" "$repo_root" 2>/dev/null || true)"
-  if [[ -n "$file_path" ]] && file_within_auto_branch_limit "$file_path" && is_probably_text_file "$file_path"; then
-    snippet="$(read_auto_branch_file_snippet "$file_path")"
-    candidate="$(build_file_branch_name "$file_path" "$snippet")"
-    resolve_unique_local_branch_name "$candidate"
-    return 0
+  model_prompt="$(build_auto_branch_generation_prompt "$context")"
+  if ! candidate="$(generate_ai_auto_branch_name "$model_prompt")"; then
+    return 1
   fi
-
-  candidate="$(build_prompt_branch_name "$prompt")"
+  if ! validate_ai_auto_branch_name "$candidate"; then
+    return 1
+  fi
   resolve_unique_local_branch_name "$candidate"
 }
 
