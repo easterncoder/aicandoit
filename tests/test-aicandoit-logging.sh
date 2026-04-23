@@ -116,6 +116,15 @@ resolved_default_branch_path="$(resolve_branch_artifact_slug "$BRANCH" "$ARTIFAC
 assert_equals "${ARTIFACT_ROOT_DEFAULT}/branches/${resolved_default_branch_path}/plan.md" "$PLAN_PATH" "default root plan path"
 assert_equals "${ARTIFACT_ROOT_DEFAULT}/branches/${resolved_default_branch_path}/code-review.md" "$CODE_FILE" "default root code review path"
 
+# Restore override-backed state for subsequent log assertions.
+ARTIFACT_ROOT="${TMP_DIR}/artifacts"
+BRANCH="gh/15"
+BRANCH_PATH="gh_15"
+LOG_CONTEXT_READY=false
+LOG_DIR=""
+unset LOG_SEQUENCE_COUNTER
+unset LOG_SEQUENCE_VALUE
+
 CODER_MODEL=""
 PLANNER_MODEL=""
 REVIEWER_MODEL=""
