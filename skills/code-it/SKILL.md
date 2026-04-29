@@ -26,12 +26,14 @@ Implement the approved plan in `.aicandoit/branches/{branch-slug}/plan.md` and c
 4. Run relevant checks and tests for changed areas.
 5. Summarize what changed and what validation passed.
 6. Ensure that tests and coding standards pass.
-7. Create a new commit with a Conventional Commit message.
+7. Confirm `git diff --cached --name-only -- .aicandoit` returns no output.
+8. Create a new commit with a Conventional Commit message.
 
 ## Commit Rules
 
 - Create a new commit, do not amend.
 - Keep commit scope aligned with the plan.
+- Never include `.aicandoit/` or any file beneath it in staged changes, the commit, or commit amendments.
 - Use factual, concise commit text.
 - Include a closes line if the commit closes a github issue.
 - Sign the commit.

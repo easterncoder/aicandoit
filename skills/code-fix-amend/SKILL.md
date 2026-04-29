@@ -32,12 +32,14 @@ Apply `.aicandoit/branches/{branch-slug}/code-review.md` corrections and amend t
 10. Map every finding ID exactly once in `.aicandoit/branches/{branch-slug}/code-fix.md` using the output format below.
 11. Run relevant validation for modified areas.
 12. Save `.aicandoit/branches/{branch-slug}/code-fix.md`.
-13. Amend the previous commit instead of creating a new commit.
+13. Confirm `git diff --cached --name-only -- .aicandoit` returns no output.
+14. Amend the previous commit instead of creating a new commit.
 
 ## Commit Rules
 
 - Amend only the latest commit in scope.
 - Keep amended commit message accurate and concise.
+- Never include `.aicandoit/` or any file beneath it in staged changes, the commit, or commit amendments.
 - Sign the amended commit.
 
 ## Output Format

@@ -33,12 +33,14 @@ Implement corrections from `.aicandoit/branches/{branch-slug}/code-review.md` an
 11. Run relevant validation for modified areas.
 12. Save `.aicandoit/branches/{branch-slug}/code-fix.md`.
 13. Ensure that tests and coding standards pass.
-14. Create a new Conventional Commit for the fix set.
+14. Confirm `git diff --cached --name-only -- .aicandoit` returns no output.
+15. Create a new Conventional Commit for the fix set.
 
 ## Commit Rules
 
 - Create a new commit, do not amend.
 - Keep commit scope aligned with reviewed findings.
+- Never include `.aicandoit/` or any file beneath it in staged changes, the commit, or commit amendments.
 - Sign the commit.
 
 ## Output Format
